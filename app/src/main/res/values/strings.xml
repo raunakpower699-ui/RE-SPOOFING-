@@ -1,0 +1,31 @@
+<resources>
+    <string name="app_name">RE Spoofing</string>
+    <string name="main_purpose">Maximum Available Performance Mode</string>
+    <string name="secondary_description">Exclusively engineered for Vivo &amp; iQOO smartphones. Optimizes demanding games and heavy workloads using supported Android and Vivo/iQOO performance APIs.</string>
+    <string name="vivo_iqoo_only_badge">VIVO &amp; iQOO EXCLUSIVE</string>
+    <string name="vivo_iqoo_blocked_title">Vivo &amp; iQOO Devices Only</string>
+    <string name="vivo_iqoo_blocked_message">RE Spoofing works exclusively on Vivo and iQOO smartphones (OriginOS / FuntouchOS). Performance Mode is locked on unsupported OEM devices.</string>
+    <string name="status_active">PERFORMANCE MODE ACTIVE</string>
+    <string name="status_inactive">PERFORMANCE MODE INACTIVE</string>
+    <string name="status_blocked_oem">LOCKED — VIVO / iQOO ONLY</string>
+    <string name="status_subtitle_active">Maximum available performance requested (Vivo / iQOO Mode)</string>
+    <string name="status_subtitle_inactive">Ready to request Android &amp; Vivo/iQOO performance APIs</string>
+    <string name="btn_start">START PERFORMANCE MODE</string>
+    <string name="btn_stop">STOP SESSION</string>
+    <string name="thermal_protection_active">Thermal Protection: ACTIVE</string>
+    <string name="thermal_limited_warning">Performance limited by device thermal protection</string>
+    <string name="battery_low_warning">High-performance mode may significantly increase battery drain and device temperature.</string>
+    <string name="oem_unavailable_notice">OEM performance control unavailable to this application.</string>
+    <string name="gpu_fallback_notice">Your device does not expose GPU performance controls through Android. The app will use the available system performance APIs instead.</string>
+    <string name="notif_channel_name">RE Spoofing Performance Session</string>
+    <string name="notif_channel_desc">Displays ongoing status when RE Spoofing Maximum Available Performance Mode is active on Vivo/iQOO devices.</string>
+    <string name="notif_title">RE Spoofing — Performance Mode Active</string>
+    <string name="notif_subtitle">Maximum available performance requested (Vivo / iQOO)</string>
+    <string name="notif_action_stop">STOP</string>
+    <string name="notif_action_open">OPEN APP</string>
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="tab_profiles">Profiles &amp; Workload</string>
+    <string name="tab_games">Game Hub</string>
+    <string name="tab_compatibility">Vivo / iQOO Matrix</string>
+    <string name="tab_settings">Logo &amp; Lock</string>
+</resources>

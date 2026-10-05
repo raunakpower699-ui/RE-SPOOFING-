@@ -1,0 +1,6 @@
+{
+  "name": "RE Spoofing",
+  "description": "Exclusive Vivo & iQOO performance optimization utility for demanding games and high-performance workloads using supported Android and Vivo/iQOO performance APIs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
