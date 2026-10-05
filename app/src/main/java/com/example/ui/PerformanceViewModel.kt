@@ -181,6 +181,40 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         PerformanceForegroundService.stopServiceSession(appContext, "User pressed STOP")
     }
 
+    fun toggleNoTouchPowerLock(enabled: Boolean) {
+        engine.setNoTouchPowerLockEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "No-Touch 97%–100% CPU/GPU Lock ENABLED (No 0% Idle Drop)"
+        } else {
+            "No-Touch CPU/GPU Lock set to standard demand"
+        }
+    }
+
+    fun toggleAntiThrottleBooster(enabled: Boolean) {
+        engine.setAntiThrottleBoosterEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "5–10 Min 97%+ Anti-Throttle Thermal Booster ENABLED"
+        } else {
+            "Thermal Booster set to standard OS thermal curve"
+        }
+    }
+
+    fun toggleVivoGameCenterInstantPulse(enabled: Boolean) {
+        engine.setVivoGameCenterInstantPulseEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "Vivo Game Center Instant-Max 16ms Pulse ENABLED"
+        } else {
+            "Vivo Game Center Instant-Max Pulse paused"
+        }
+    }
+
+    fun purgeBackgroundAppsNow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (killedCount, freedMb) = engine.purgeBackgroundProcessesAndBoostRam()
+            _uiBannerMessage.value = "Purged $killedCount background apps via ActivityManager (${freedMb} MB freed)!"
+        }
+    }
+
     fun selectProfile(profile: PerformanceProfile) {
         engine.setSelectedProfile(profile)
         viewModelScope.launch(Dispatchers.IO) {

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.engine.AndroidPerformanceEngine
 import com.example.ui.PerformanceViewModel
 import com.example.ui.components.LowBatteryWarningDialog
 import com.example.ui.components.StatusPillBadge
@@ -106,6 +108,17 @@ enum class VivoNavTab(
 }
 
 class MainActivity : ComponentActivity() {
+
+    override fun onResume() {
+        super.onResume()
+        AndroidPerformanceEngine.getInstance(applicationContext).setAppForegroundState(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AndroidPerformanceEngine.getInstance(applicationContext).setAppForegroundState(false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -115,25 +128,56 @@ class MainActivity : ComponentActivity() {
                 val telemetryState by viewModel.telemetryState.collectAsStateWithLifecycle()
 
                 LaunchedEffect(
+                    telemetryState.isSessionActive,
                     telemetryState.sustainedModeRequestedOnWindow,
                     telemetryState.isDiabloModeActive,
+                    telemetryState.antiThrottleBoosterEnabled,
+                    telemetryState.noTouchPowerLockEnabled,
                     telemetryState.compatibility.sustainedPerformanceSupported
                 ) {
+                    // 1. Ensure Window SustainedPerformanceMode is FALSE when Anti-Throttle 97%+ Booster is active
+                    // so the OEM PowerHAL never clamps Prime/Gold CPU cores down to 90%.
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
                         telemetryState.compatibility.sustainedPerformanceSupported
                     ) {
                         try {
-                            window?.setSustainedPerformanceMode(telemetryState.sustainedModeRequestedOnWindow)
+                            val enableSustainedClamp = telemetryState.sustainedModeRequestedOnWindow &&
+                                !telemetryState.antiThrottleBoosterEnabled
+                            window?.setSustainedPerformanceMode(enableSustainedClamp)
                         } catch (_: Throwable) {
                         }
                     }
 
-                    // Request peak supported display refresh rate when DIABLO MODE is active
+                    // 2. Keep screen & display controller awake and lock highest refresh rate mode when active
                     try {
                         val win = window
                         if (win != null) {
+                            if (telemetryState.isSessionActive) {
+                                win.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            } else {
+                                win.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            }
+
                             val params = win.attributes
-                            params.preferredRefreshRate = if (telemetryState.isDiabloModeActive) 165f else 0f
+                            if (telemetryState.isSessionActive) {
+                                val peakHz = telemetryState.deviceSpecs.displayRefreshRateHz
+                                    .coerceAtLeast(if (telemetryState.isDiabloModeActive) 165 else 120)
+                                    .toFloat()
+                                params.preferredRefreshRate = peakHz
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    @Suppress("DEPRECATION")
+                                    val modes = windowManager?.defaultDisplay?.supportedModes
+                                    val bestMode = modes?.maxByOrNull { it.refreshRate }
+                                    if (bestMode != null) {
+                                        params.preferredDisplayModeId = bestMode.modeId
+                                    }
+                                }
+                            } else {
+                                params.preferredRefreshRate = 0f
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    params.preferredDisplayModeId = 0
+                                }
+                            }
                             win.attributes = params
                         }
                     } catch (_: Throwable) {
@@ -272,7 +316,7 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                     actions = {
                         StatusPillBadge(
                             text = when {
-                                telemetryState.isSessionActive -> "ACTIVE"
+                                telemetryState.isSessionActive -> "${telemetryState.lockedPowerPercent}% LOCKED"
                                 !telemetryState.compatibility.isVivoOrIqoo -> "VIVO LOCK"
                                 else -> "STANDBY"
                             },
@@ -394,7 +438,11 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                             onStopClicked = { viewModel.stopPerformanceMode() },
                             onQuickProfileSelect = { viewModel.selectProfile(it) },
                             onOpenLogoPicker = openCustomLogoPicker,
-                            onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) }
+                            onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
+                            onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
+                            onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
+                            onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },
+                            onPurgeBackgroundAppsNow = { viewModel.purgeBackgroundAppsNow() }
                         )
                         VivoNavTab.PROFILES -> ProfilesScreen(
                             state = telemetryState,

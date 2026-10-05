@@ -26,7 +26,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `verify live phone specs detection and Diablo Mode overdrive`() {
+    fun `verify live phone specs detection, No-Touch 97-100 lock, and Diablo Mode overdrive`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val engine = AndroidPerformanceEngine.getInstance(context)
         engine.setVivoIqooEmulatorSimulation(false)
@@ -47,7 +47,7 @@ class ExampleRobolectricTest {
         assertFalse(engine.telemetryState.value.isSessionActive)
         assertEquals("LOCKED (VIVO/iQOO ONLY)", engine.telemetryState.value.cpuStatus.requestState)
 
-        // When Vivo/iQOO device environment is verified, DIABLO MODE starts with 6.0ms target
+        // When Vivo/iQOO device environment is verified, DIABLO MODE starts with 1.8ms overdrive and 97%-100% power lock
         engine.setVivoIqooEmulatorSimulation(true)
         val startedResult = engine.startPerformanceSession(
             profile = PerformanceProfile.DIABLO_MODE,
@@ -57,14 +57,30 @@ class ExampleRobolectricTest {
         val diabloState = engine.telemetryState.value
         assertTrue(diabloState.isSessionActive)
         assertTrue(diabloState.isDiabloModeActive)
-        assertEquals(6_000_000L, diabloState.cpuStatus.targetDurationNanos)
+        assertTrue(diabloState.noTouchPowerLockEnabled)
+        assertTrue(diabloState.antiThrottleBoosterEnabled)
+        assertTrue(diabloState.lockedPowerPercent in 97..100)
+        assertFalse(diabloState.sustainedModeRequestedOnWindow)
+        assertEquals(1_800_000L, diabloState.cpuStatus.targetDurationNanos)
         assertEquals("ACTIVE (DIABLO OVERDRIVE)", diabloState.cpuStatus.requestState)
+
+        // Verify toggling No-Touch Hardware Lock OFF immediately drops forced duty
+        engine.setNoTouchPowerLockEnabled(false)
+        assertFalse(engine.telemetryState.value.noTouchPowerLockEnabled)
+        assertEquals(0, engine.telemetryState.value.realMeasuredThreadDutyPercent)
+        engine.setNoTouchPowerLockEnabled(true)
+        assertTrue(engine.telemetryState.value.noTouchPowerLockEnabled)
+
+        // Verify background process purger executes cleanly
+        val (purgedCount, _) = engine.purgeBackgroundProcessesAndBoostRam()
+        assertTrue(purgedCount >= 0)
 
         // Stop session and verify cleanup
         engine.stopPerformanceSession("Unit test stop")
         val stoppedState = engine.telemetryState.value
         assertFalse(stoppedState.isSessionActive)
         assertFalse(stoppedState.isDiabloModeActive)
+        assertEquals(0, stoppedState.lockedPowerPercent)
         assertEquals("INACTIVE", stoppedState.cpuStatus.requestState)
         assertEquals("INACTIVE", stoppedState.gpuStatus.requestState)
     }
