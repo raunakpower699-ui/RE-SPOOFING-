@@ -128,6 +128,27 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         _uiBannerMessage.value = "Live CPU & GPU hardware telemetry refreshed!"
     }
 
+    fun activateAllMaxHardwareSubsystemsNow() {
+        engine.activateAllMaxHardwareSubsystems()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateSelectedProfile(PerformanceProfile.DIABLO_MODE)
+            repository.updateSelectedWorkloadFocus(WorkloadFocus.COMBINED_MAX)
+        }
+        val currentTelemetry = telemetryState.value
+        if (currentTelemetry.compatibility.isVivoOrIqoo) {
+            PerformanceForegroundService.startServiceSession(
+                context = appContext,
+                profile = PerformanceProfile.DIABLO_MODE,
+                workloadFocus = WorkloadFocus.COMBINED_MAX,
+                gamePackage = currentTelemetry.activeGamePackage,
+                gameName = currentTelemetry.activeGameName
+            )
+            _uiBannerMessage.value = "ALL MAX HARDWARE SUBSYSTEMS IGNITED (97%–100% CPU/GPU + LPDDR5X + Audio DSP + IMU + UFS I/O)!"
+        } else {
+            _uiBannerMessage.value = "All Max Hardware Subsystems armed — Unlock Vivo/iQOO mode to ignite!"
+        }
+    }
+
     fun requestStartPerformanceMode(forceOverrideBatteryWarning: Boolean = false) {
         val currentTelemetry = telemetryState.value
 
@@ -230,10 +251,59 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleVivoGameCenterInstantPulse(enabled: Boolean) {
         engine.setVivoGameCenterInstantPulseEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "Vivo Game Center Instant-Max 14ms 5x ADPF Pulse ENABLED"
+            "Vivo Game Center Instant-Max 5x ADPF Pulse ENABLED"
         } else {
             "Vivo Game Center Instant-Max Pulse paused"
         }
+    }
+
+    fun toggleLowLatencyAudioDspLock(enabled: Boolean) {
+        engine.setLowLatencyAudioDspLockEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "Low-Latency Game Audio DSP FastPath (PERFORMANCE_MODE_LOW_LATENCY) ENABLED"
+        } else {
+            "Low-Latency Audio DSP FastPath paused"
+        }
+    }
+
+    fun toggleMemoryBandwidthPrefetch(enabled: Boolean) {
+        engine.setMemoryBandwidthPrefetchEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "LPDDR Memory Controller 64B Cache-Line Prefetch Lock ENABLED"
+        } else {
+            "LPDDR Memory Controller Prefetch paused"
+        }
+    }
+
+    fun toggleMinimalPostProcessingDisplay(enabled: Boolean) {
+        engine.setMinimalPostProcessingDisplayEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "Display Minimal Post-Processing & Peak VSYNC Lock ENABLED"
+        } else {
+            "Display Minimal Post-Processing set to standard"
+        }
+    }
+
+    fun toggleTouchSensorBoost(enabled: Boolean) {
+        engine.setTouchSensorBoostEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "High-Rate Game IMU Sensor (SENSOR_DELAY_GAME) & Unbuffered Touch Lock ENABLED"
+        } else {
+            "High-Rate Game IMU Sensor Lock paused"
+        }
+    }
+
+    fun toggleStorageIoBoost(enabled: Boolean) {
+        engine.setStorageIoBoostEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "UFS 3.1/4.0 Direct 16KB FileChannel I/O Keep-Alive ENABLED"
+        } else {
+            "UFS Direct FileChannel I/O Keep-Alive paused"
+        }
+    }
+
+    fun updateLiveChoreographerMetrics(fps: Int, frameTimeMs: Float) {
+        engine.updateLiveChoreographerFrameMetrics(fps, frameTimeMs)
     }
 
     fun purgeBackgroundAppsNow() {

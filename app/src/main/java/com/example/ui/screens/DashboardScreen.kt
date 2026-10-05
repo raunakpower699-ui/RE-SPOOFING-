@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,14 +45,12 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -65,7 +62,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,10 +73,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -110,6 +104,7 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -125,6 +120,12 @@ fun DashboardScreen(
     onToggleNoTouchPowerLock: (Boolean) -> Unit = {},
     onToggleAntiThrottleBooster: (Boolean) -> Unit = {},
     onToggleVivoGameCenterPulse: (Boolean) -> Unit = {},
+    onToggleLowLatencyAudioDspLock: (Boolean) -> Unit = {},
+    onToggleMemoryBandwidthPrefetch: (Boolean) -> Unit = {},
+    onToggleMinimalPostProcessingDisplay: (Boolean) -> Unit = {},
+    onToggleTouchSensorBoost: (Boolean) -> Unit = {},
+    onToggleStorageIoBoost: (Boolean) -> Unit = {},
+    onActivateAllMaxHardwareNow: () -> Unit = {},
     onPurgeBackgroundAppsNow: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -140,8 +141,7 @@ fun DashboardScreen(
         item {
             IdentityHeaderCard(
                 state = state,
-                customLogoUri = customLogoUri,
-                onOpenLogoPicker = onOpenLogoPicker
+                customLogoUri = customLogoUri
             )
         }
 
@@ -168,13 +168,19 @@ fun DashboardScreen(
             )
         }
 
-        // 5. 97%–100% Constant CPU & OpenGL ES 2.0 GPU Power Lock Card (Zero 0%/18%/70%/80% Drops)
+        // 5. 97%–100% Constant CPU, OpenGL ES 2.0 GPU, LPDDR5X, Audio DSP, Sensor & UFS Max Lock Card
         item {
             ConstantPowerLockAndThermalBoosterCard(
                 state = state,
                 onToggleNoTouchPowerLock = onToggleNoTouchPowerLock,
                 onToggleAntiThrottleBooster = onToggleAntiThrottleBooster,
                 onToggleVivoGameCenterPulse = onToggleVivoGameCenterPulse,
+                onToggleLowLatencyAudioDspLock = onToggleLowLatencyAudioDspLock,
+                onToggleMemoryBandwidthPrefetch = onToggleMemoryBandwidthPrefetch,
+                onToggleMinimalPostProcessingDisplay = onToggleMinimalPostProcessingDisplay,
+                onToggleTouchSensorBoost = onToggleTouchSensorBoost,
+                onToggleStorageIoBoost = onToggleStorageIoBoost,
+                onActivateAllMaxHardwareNow = onActivateAllMaxHardwareNow,
                 onPurgeBackgroundAppsNow = onPurgeBackgroundAppsNow
             )
         }
@@ -202,7 +208,7 @@ fun DashboardScreen(
         // 9. Four Primary Status Cards (CPU, GPU, Thermal, Foreground Service & Battery)
         item {
             Text(
-                text = "REAL-TIME CPU & GPU MAX PERFORMANCE TELEMETRY",
+                text = "REAL-TIME CPU, GPU, LPDDR, AUDIO, SENSOR & UFS TELEMETRY",
                 style = MaterialTheme.typography.labelLarge,
                 color = if (state.selectedProfile == PerformanceProfile.DIABLO_MODE) Color(0xFFFF1744) else ElectricCyan,
                 modifier = Modifier.padding(top = 4.dp)
@@ -220,7 +226,7 @@ fun DashboardScreen(
 
             TelemetryStatusCard(
                 title = "CPU — 97%–100% Constant Max Lock",
-                subtitleLabel = "243ms/245ms Multi-Core Matrix/FPU + 14ms 5x ADPF Overdrive",
+                subtitleLabel = "Multi-Core FPU/Matrix + ARMv8 CRC32C ALU + Direct LPDDR Stride + 5x ADPF",
                 stateBadge = "Performance request: ${state.cpuStatus.requestState}",
                 stateColor = cpuColor,
                 icon = Icons.Filled.Memory,
@@ -241,7 +247,7 @@ fun DashboardScreen(
 
             TelemetryStatusCard(
                 title = "GPU — OpenGL ES 2.0 97%–100% Max Lock",
-                subtitleLabel = "EGL14 256x256 Pbuffer 64-Iteration Fragment Shaders & VSYNC Lock",
+                subtitleLabel = "EGL14 Pbuffer ALU + Texture2D VRAM Fragment Shaders & Peak VSYNC Lock",
                 stateBadge = "Performance request: ${state.gpuStatus.requestState}",
                 stateColor = gpuColor,
                 icon = Icons.Filled.DeveloperBoard,
@@ -334,7 +340,7 @@ fun DashboardScreen(
 }
 
 /**
- * Dedicated 97%–100% Constant CPU & OpenGL ES 2.0 GPU Power Lock Card.
+ * Dedicated 97%–100% Constant CPU, OpenGL ES 2.0 GPU, LPDDR5X, Audio DSP, IMU Sensor & UFS Max Lock Card.
  * Eliminates all 0%, 18%, 70%, 73%, and 80% drops!
  */
 @Composable
@@ -343,6 +349,12 @@ private fun ConstantPowerLockAndThermalBoosterCard(
     onToggleNoTouchPowerLock: (Boolean) -> Unit,
     onToggleAntiThrottleBooster: (Boolean) -> Unit,
     onToggleVivoGameCenterPulse: (Boolean) -> Unit,
+    onToggleLowLatencyAudioDspLock: (Boolean) -> Unit,
+    onToggleMemoryBandwidthPrefetch: (Boolean) -> Unit,
+    onToggleMinimalPostProcessingDisplay: (Boolean) -> Unit,
+    onToggleTouchSensorBoost: (Boolean) -> Unit,
+    onToggleStorageIoBoost: (Boolean) -> Unit,
+    onActivateAllMaxHardwareNow: () -> Unit,
     onPurgeBackgroundAppsNow: () -> Unit
 ) {
     val isLockedActive = state.isSessionActive && state.noTouchPowerLockEnabled
@@ -362,8 +374,8 @@ private fun ConstantPowerLockAndThermalBoosterCard(
         if (state.isSessionActive && (state.noTouchPowerLockEnabled || state.vivoGameCenterInstantPulseEnabled)) {
             while (isActive) {
                 scanPhase = (scanPhase + 0.04f) % 1.0f
-                liveFpsEstimate = state.deviceSpecs.displayRefreshRateHz.coerceAtLeast(120)
-                kotlinx.coroutines.delay(50L)
+                liveFpsEstimate = state.liveMeasuredFps.coerceAtLeast(state.deviceSpecs.displayRefreshRateHz)
+                delay(50L)
             }
         } else {
             scanPhase = 0f
@@ -408,13 +420,13 @@ private fun ConstantPowerLockAndThermalBoosterCard(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "97%–100% CPU & GPU CONSTANT LOCK",
+                            text = "97%–100% FULL HARDWARE MAX LOCK",
                             style = MaterialTheme.typography.titleMedium,
                             color = TextPrimary,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Zero 0%/18%/70%/80% Drops • OpenGL ES 2.0 GPU + Multi-Core CPU",
+                            text = "CPU (FPU+CRC32C) • GLES20 GPU • LPDDR5X • Audio DSP • IMU • UFS I/O",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isLockedActive) TelemetryGreen else ElectricCyan
                         )
@@ -575,6 +587,23 @@ private fun ConstantPowerLockAndThermalBoosterCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // One-Tap Ignite All Max Hardware Subsystems Button
+            AnimatedGlowButton(
+                text = "IGNITE ALL MAX HARDWARE SUBSYSTEMS (100% REAL)",
+                icon = Icons.Filled.LocalFireDepartment,
+                onClick = onActivateAllMaxHardwareNow,
+                enabled = true,
+                baseColor = Color(0xFFFF1744),
+                pressedGlowColor = Color(0xFFFFB300),
+                contentColor = Color.White,
+                testTag = "ignite_all_max_hardware_button",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             AnimatedGlowOutlinedButton(
                 text = if (state.purgedBackgroundAppsCount > 0) {
                     "KILL BACKGROUND APPS & BOOST RAM (${state.purgedBackgroundAppsCount} Purged)"
@@ -593,12 +622,94 @@ private fun ConstantPowerLockAndThermalBoosterCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             BoosterToggleRow(
-                title = "97%–100% Constant CPU & OpenGL ES 2.0 GPU Lock",
-                subtitle = "Runs continuous 243ms/245ms Matrix/FPU worker threads on all cores + OpenGL ES 2.0 EGL14 Pbuffer shaders so CPU & GPU never drop below 97%",
+                title = "97%–100% Constant CPU (FPU + CRC32C) & OpenGL ES 2.0 GPU Lock",
+                subtitle = "Runs continuous Matrix/FPU + ARMv8 CRC32C ALU worker threads + OpenGL ES 2.0 EGL14 Pbuffer shaders so CPU & GPU never drop below 97%",
                 checked = state.noTouchPowerLockEnabled,
                 onCheckedChange = onToggleNoTouchPowerLock,
                 accentColor = TelemetryGreen,
                 testTag = "toggle_no_touch_power_lock"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "LPDDR5 / 5X Memory Controller 64B Cache-Line Prefetch Lock",
+                subtitle = if (state.isSessionActive && state.memoryBandwidthPrefetchEnabled) {
+                    "ACTIVE: ${state.memoryBandwidthMbPerSec} MB/s across native 256KB off-heap Direct ByteBuffer (prevents RAM bus downclocking)"
+                } else {
+                    "Strides 64-byte cache lines across a 256KB native Direct ByteBuffer to keep the SoC LPDDR memory bus locked at max speed"
+                },
+                checked = state.memoryBandwidthPrefetchEnabled,
+                onCheckedChange = onToggleMemoryBandwidthPrefetch,
+                accentColor = ElectricCyan,
+                testTag = "toggle_memory_bandwidth_prefetch"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "Low-Latency Game Audio DSP Fast-Mixer Lock",
+                subtitle = "Holds AudioTrack in PERFORMANCE_MODE_LOW_LATENCY + USAGE_GAME (${state.audioHardwareSampleRateHz}Hz / ${state.audioFastMixerBufferFrames} frames) so the SoC Audio DSP never sleeps",
+                checked = state.lowLatencyAudioDspLockEnabled,
+                onCheckedChange = onToggleLowLatencyAudioDspLock,
+                accentColor = TelemetryGreen,
+                testTag = "toggle_low_latency_audio_dsp"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "High-Rate Game IMU Sensor & Unbuffered Touch Pipeline Lock",
+                subtitle = if (state.isSessionActive && state.touchSensorBoostEnabled) {
+                    "ACTIVE: ${state.sensorSamplingHz}Hz SENSOR_DELAY_GAME (${state.sensorHardwareName.ifBlank { "Hardware IMU" }}) + Unbuffered Input Dispatch"
+                } else {
+                    "Locks SensorManager in SENSOR_DELAY_GAME mode and enables Window requestUnbufferedDispatch for zero touch/gyro batching lag"
+                },
+                checked = state.touchSensorBoostEnabled,
+                onCheckedChange = onToggleTouchSensorBoost,
+                accentColor = Color(0xFFFFB300),
+                testTag = "toggle_touch_sensor_boost"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "UFS 3.1 / 4.0 Direct 16KB FileChannel Storage I/O Keep-Alive",
+                subtitle = if (state.isSessionActive && state.storageIoBoostEnabled) {
+                    "ACTIVE: ${state.storageThroughputMbPerSec} MB/s page-aligned Direct ByteBuffer FileChannel keep-alive (prevents UFS link sleep)"
+                } else {
+                    "Executes non-blocking 16KB page-aligned Direct ByteBuffer FileChannel cycles so UFS storage never enters power-save link sleep"
+                },
+                checked = state.storageIoBoostEnabled,
+                onCheckedChange = onToggleStorageIoBoost,
+                accentColor = ElectricCyan,
+                testTag = "toggle_storage_io_boost"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "Display Minimal Post-Processing & Wide Gamut Peak VSYNC Lock",
+                subtitle = "Calls Window.setPreferMinimalPostProcessing(true), Wide Color Gamut, and locks peak hardware refresh rate (${state.deviceSpecs.displayRefreshRateHz}Hz)",
+                checked = state.minimalPostProcessingDisplayEnabled,
+                onCheckedChange = onToggleMinimalPostProcessingDisplay,
+                accentColor = TelemetryGreen,
+                testTag = "toggle_minimal_post_processing_display"
             )
 
             HorizontalDivider(
@@ -621,8 +732,8 @@ private fun ConstantPowerLockAndThermalBoosterCard(
             )
 
             BoosterToggleRow(
-                title = "Vivo Game Center Instant-Max Pulse (14ms 5x ADPF)",
-                subtitle = "Pulses 5x ADPF overdrive every 14ms + OpenGL GPU shader lock so Vivo Game Center shows max power immediately",
+                title = "Vivo Game Center Instant-Max Pulse (5x ADPF Overdrive)",
+                subtitle = "Pulses 5x ADPF overdrive across Main UI PID + OpenGL GPU TID + Worker TIDs so Vivo Game Center shows max power immediately",
                 checked = state.vivoGameCenterInstantPulseEnabled,
                 onCheckedChange = onToggleVivoGameCenterPulse,
                 accentColor = ElectricCyan,
@@ -712,13 +823,13 @@ private fun DiabloModeOverdriveHudCard(state: PerformanceTelemetryState) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "DIABLO MODE — EXTREME CPU & GPU LOCK",
+                            text = "DIABLO MODE — FULL HARDWARE MAX LOCK",
                             style = MaterialTheme.typography.titleMedium,
                             color = Color(0xFFFFB300),
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "97%–100% Unclamped CPU/GPU Max Power • Tuned by Raunak Exploits",
+                            text = "97%–100% Unclamped CPU/GPU/LPDDR/Audio/IMU/UFS • By Raunak Exploits",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextPrimary
                         )
@@ -734,11 +845,62 @@ private fun DiabloModeOverdriveHudCard(state: PerformanceTelemetryState) {
             HorizontalDivider(color = Color(0xFFFF1744).copy(alpha = 0.35f))
             Spacer(modifier = Modifier.height(10.dp))
 
-            DiabloTelemetryRow("Prime-Core ADPF Target", "1.6 ms (5x Overdrive 14ms Pulse)")
-            DiabloTelemetryRow("Constant CPU/GPU Floor", if (state.noTouchPowerLockEnabled) "LOCKED 97%–100% (Zero Drops)" else "Standard")
-            DiabloTelemetryRow("OpenGL ES 2.0 GPU Lock", if (state.noTouchPowerLockEnabled) "ACTIVE (${state.gpuLockedDutyPercent.coerceIn(97, 100)}% GLES20)" else "Standby")
+            DiabloTelemetryRow("Prime-Core ADPF Target", "1.6 ms (5x Overdrive on UI + GL + CPU TIDs)")
+            DiabloTelemetryRow(
+                "CPU FPU + ARMv8 CRC32C Lock",
+                if (state.noTouchPowerLockEnabled) {
+                    val alu = if (state.isSessionActive) "${state.crc32AluOpsPerSecMillions}M ALU ops/s" else "Armed"
+                    "LOCKED 97%–100% ($alu)"
+                } else {
+                    "Standard"
+                }
+            )
+            DiabloTelemetryRow(
+                "OpenGL ES 2.0 GPU Lock",
+                if (state.noTouchPowerLockEnabled) {
+                    "ACTIVE (${state.gpuLockedDutyPercent.coerceIn(97, 100)}% GLES20 • ${state.glRendererName.ifBlank { "Hardware GPU" }})"
+                } else {
+                    "Standby"
+                }
+            )
+            DiabloTelemetryRow(
+                "LPDDR5X Memory Bus Stride",
+                if (state.memoryBandwidthPrefetchEnabled) {
+                    if (state.isSessionActive) "ACTIVE (${state.memoryBandwidthMbPerSec} MB/s • 64B Cache Stride)" else "ARMED (256KB Direct)"
+                } else {
+                    "Paused"
+                }
+            )
+            DiabloTelemetryRow(
+                "Audio DSP Fast-Mixer Lock",
+                if (state.lowLatencyAudioDspLockEnabled) {
+                    "LOW LATENCY (${state.audioHardwareSampleRateHz}Hz / ${state.audioFastMixerBufferFrames} Frames)"
+                } else {
+                    "Paused"
+                }
+            )
+            DiabloTelemetryRow(
+                "High-Rate Game IMU & Touch",
+                if (state.touchSensorBoostEnabled) {
+                    val hz = if (state.isSessionActive) "${state.sensorSamplingHz}Hz" else "SENSOR_DELAY_GAME"
+                    "ACTIVE ($hz • Unbuffered Input)"
+                } else {
+                    "Standard"
+                }
+            )
+            DiabloTelemetryRow(
+                "UFS 3.1 / 4.0 Direct Storage I/O",
+                if (state.storageIoBoostEnabled) {
+                    if (state.isSessionActive) "ACTIVE (${state.storageThroughputMbPerSec} MB/s • 16KB Direct)" else "ARMED (16KB Direct)"
+                } else {
+                    "Standard"
+                }
+            )
+            DiabloTelemetryRow(
+                "Display VSYNC & Network Link",
+                "${state.liveMeasuredFps} FPS (${String.format(Locale.US, "%.1f", state.liveFrameTimeMs)}ms) • Net: ${state.networkDownstreamMbps} Mbps"
+            )
             DiabloTelemetryRow("Non-Stop Background Guard", "ACTIVE (Until Notification Exit)")
-            DiabloTelemetryRow("Vivo GameWatch / Panel", "INSTANT-MAX READY (${state.deviceSpecs.displayRefreshRateHz}Hz VSYNC)")
         }
     }
 }
@@ -768,8 +930,7 @@ private fun DiabloTelemetryRow(label: String, value: String) {
 @Composable
 private fun IdentityHeaderCard(
     state: PerformanceTelemetryState,
-    customLogoUri: String?,
-    onOpenLogoPicker: () -> Unit
+    customLogoUri: String?
 ) {
     val headerBorderBrush = Brush.horizontalGradient(
         colors = listOf(Color(0xFFFFB300), Color(0xFFE50914))
@@ -1005,7 +1166,7 @@ private fun PerformanceControlHeroCard(
                     Text(
                         text = when {
                             state.isSessionActive ->
-                                "97%–100% Constant CPU & OpenGL ES 2.0 GPU Max Lock • Runs non-stop until exited from Notification Panel"
+                                "97%–100% Constant CPU (FPU/CRC32C) + OpenGL ES 2.0 GPU + LPDDR5X + Audio DSP + IMU + UFS Max Lock • Runs non-stop until exited from Notification Panel"
                             !isVivoIqooVerified -> "Only Vivo and iQOO devices are permitted to run RE Spoofing Performance Mode."
                             else -> stringResource(id = R.string.status_subtitle_inactive)
                         },

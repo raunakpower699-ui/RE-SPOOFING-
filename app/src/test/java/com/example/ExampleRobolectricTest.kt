@@ -26,7 +26,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `verify live phone specs, Diablo Mode, and 97-100 CPU and OpenGL GPU max lock`() {
+    fun `verify live phone specs, Diablo Mode, and all 8 real max hardware subsystems`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val engine = AndroidPerformanceEngine.getInstance(context)
         engine.setVivoIqooEmulatorSimulation(false)
@@ -47,8 +47,9 @@ class ExampleRobolectricTest {
         assertFalse(engine.telemetryState.value.isSessionActive)
         assertEquals("LOCKED (VIVO/iQOO ONLY)", engine.telemetryState.value.cpuStatus.requestState)
 
-        // When Vivo/iQOO device environment is verified, DIABLO MODE locks both CPU & OpenGL ES 2.0 GPU in 97%-100% band
+        // Unlock Vivo/iQOO verification and activate all max hardware subsystems
         engine.setVivoIqooEmulatorSimulation(true)
+        engine.activateAllMaxHardwareSubsystems()
         val startedResult = engine.startPerformanceSession(
             profile = PerformanceProfile.DIABLO_MODE,
             workloadFocus = WorkloadFocus.COMBINED_MAX
@@ -59,8 +60,18 @@ class ExampleRobolectricTest {
         assertTrue(diabloState.isDiabloModeActive)
         assertTrue(diabloState.noTouchPowerLockEnabled)
         assertTrue(diabloState.antiThrottleBoosterEnabled)
+        assertTrue(diabloState.memoryBandwidthPrefetchEnabled)
+        assertTrue(diabloState.lowLatencyAudioDspLockEnabled)
+        assertTrue(diabloState.touchSensorBoostEnabled)
+        assertTrue(diabloState.storageIoBoostEnabled)
+        assertTrue(diabloState.minimalPostProcessingDisplayEnabled)
         assertTrue(diabloState.lockedPowerPercent in 97..100)
         assertTrue(diabloState.gpuLockedDutyPercent in 97..100)
+        assertTrue(diabloState.memoryBandwidthMbPerSec >= 11000)
+        assertTrue(diabloState.crc32AluOpsPerSecMillions >= 700)
+        assertTrue(diabloState.sensorSamplingHz >= 120)
+        assertTrue(diabloState.storageThroughputMbPerSec >= 1700)
+        assertTrue(diabloState.audioFastPathActive)
         assertFalse(diabloState.sustainedModeRequestedOnWindow)
         assertEquals(1_600_000L, diabloState.cpuStatus.targetDurationNanos)
         assertEquals("ACTIVE (DIABLO OVERDRIVE)", diabloState.cpuStatus.requestState)
@@ -84,6 +95,10 @@ class ExampleRobolectricTest {
         assertFalse(stoppedState.isDiabloModeActive)
         assertEquals(0, stoppedState.lockedPowerPercent)
         assertEquals(0, stoppedState.gpuLockedDutyPercent)
+        assertEquals(0, stoppedState.memoryBandwidthMbPerSec)
+        assertEquals(0, stoppedState.crc32AluOpsPerSecMillions)
+        assertEquals(0, stoppedState.sensorSamplingHz)
+        assertEquals(0, stoppedState.storageThroughputMbPerSec)
         assertEquals("INACTIVE", stoppedState.cpuStatus.requestState)
         assertEquals("INACTIVE", stoppedState.gpuStatus.requestState)
     }

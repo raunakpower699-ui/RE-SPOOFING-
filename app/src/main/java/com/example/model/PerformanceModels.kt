@@ -2,7 +2,7 @@ package com.example.model
 
 /**
  * Supported performance profiles including DIABLO MODE (the only RedMagic/ROG extreme profile retained,
- * focused 100% on unclamped CPU & OpenGL ES 2.0 GPU max performance extraction).
+ * focused 100% on unclamped CPU, GPU, LPDDR Memory, Audio DSP, Sensor, Display & Storage max performance extraction).
  * Note: requestSustainedMode is kept false for PERFORMANCE, GAMING, DIABLO_MODE, and SUSTAINED_PERFORMANCE
  * because Android's Window.setSustainedPerformanceMode(true) instructs OEM PowerHALs to clamp maximum
  * Prime/Gold CPU clocks down to ~85-90%. Keeping it false allows 97%-100% unclamped turbo clocks.
@@ -32,8 +32,8 @@ enum class PerformanceProfile(
     PERFORMANCE(
         id = "PERFORMANCE",
         title = "PERFORMANCE (MAX)",
-        subtitle = "Locks 96%–100% CPU & GPU performance floor",
-        description = "Locks multi-cluster ADPF sessions, OpenGL ES 2.0 GPU shader floor, WakeLock anti-idle floor, and GameManager hints for 96%–100% steady power output.",
+        subtitle = "Locks 97%–100% CPU & GPU performance floor",
+        description = "Locks multi-cluster ADPF sessions, OpenGL ES 2.0 GPU shader floor, LPDDR memory prefetch, WakeLock anti-idle floor, and GameManager hints for 97%–100% steady power output.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
@@ -43,8 +43,8 @@ enum class PerformanceProfile(
     GAMING(
         id = "GAMING",
         title = "MONSTER GAMING",
-        subtitle = "Vivo / iQOO Monster Mode • 96%–100% CPU/GPU Lock",
-        description = "Keeps CPU & OpenGL ES 2.0 GPU frequency floors locked at 96%–100% even when not touching the screen or standing still in-game, eliminating 0% / 70% / 80% drops.",
+        subtitle = "Vivo / iQOO Monster Mode • 97%–100% CPU/GPU Lock",
+        description = "Keeps CPU, OpenGL ES 2.0 GPU, LPDDR memory, Audio DSP, and Touch/Sensor pipelines locked at 97%–100% even when not touching the screen, eliminating 0% / 70% / 80% drops.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
@@ -54,8 +54,8 @@ enum class PerformanceProfile(
     DIABLO_MODE(
         id = "DIABLO_MODE",
         title = "DIABLO MODE",
-        subtitle = "Extreme Unclamped 97%–100% CPU & GPU Max Performance Lock",
-        description = "Pure Diablo Mode hardware overdrive. Unclamps Prime + Gold CPU clusters (1.6ms ADPF 5x Overdrive + 244ms/246ms SIMD/FPU saturation), locks OpenGL ES 2.0 hardware GPU shaders at 97%–100%, and runs non-stop until exited from the notification panel.",
+        subtitle = "Extreme Unclamped 97%–100% Full-Hardware Max Performance Lock",
+        description = "Pure Diablo Mode hardware overdrive. Unclamps Prime + Gold CPU clusters (1.6ms ADPF 5x Overdrive + FPU/Matrix/CRC32C ALU), locks OpenGL ES 2.0 GPU shaders at 97%–100%, locks LPDDR 64B cache-line prefetch, Audio DSP FastPath, High-Rate Game Sensors, UFS Storage I/O, and Peak Display Hz non-stop until exited from the notification panel.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
@@ -65,7 +65,7 @@ enum class PerformanceProfile(
     SUSTAINED_PERFORMANCE(
         id = "SUSTAINED_PERFORMANCE",
         title = "SUSTAINED PERFORMANCE",
-        subtitle = "96%–100% Anti-Throttle Stability for marathon heavy loads",
+        subtitle = "97%–100% Anti-Throttle Stability for marathon heavy loads",
         description = "Engineered for 5–10+ minute CPU Throttling Tests and marathon gaming. Disables OEM 90% clock clamping and continuously reinforces ADPF Prime-Core + OpenGL GPU boost.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
@@ -96,7 +96,7 @@ enum class WorkloadFocus(
         id = "COMBINED_MAX",
         title = "Combined CPU + GPU Lock",
         summary = "Highest supported overall performance mode (97%–100% Lock)",
-        detail = "Simultaneously locks multi-core CPU ADPF hints, No-Touch Governor Keep-Alive, and OpenGL ES 2.0 GPU hardware shader states at 97%–100%.",
+        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 2.0 GPU hardware shader states at 97%–100%.",
         enableCpuHints = true,
         enableGpuGameHints = true
     ),
@@ -104,7 +104,7 @@ enum class WorkloadFocus(
         id = "CPU_PRIMARY",
         title = "CPU Workload Priority",
         summary = "Prioritize CPU hints • Avoid unnecessary GPU activity",
-        detail = "Focuses exclusively on multi-core CPU PerformanceHintManager thread scheduling and anti-throttle stability.",
+        detail = "Focuses exclusively on multi-core CPU PerformanceHintManager thread scheduling, FPU/CRC32C ALU, LPDDR memory stride, and anti-throttle stability.",
         enableCpuHints = true,
         enableGpuGameHints = false
     ),
@@ -125,7 +125,7 @@ enum class WorkloadFocus(
 }
 
 /**
- * Thermal state representation tuned for 5-10+ minute 96%–100% stability.
+ * Thermal state representation tuned for 5-10+ minute 97%–100% stability.
  */
 enum class ThermalStatusLevel(
     val displayLabel: String,
@@ -268,10 +268,29 @@ data class PerformanceTelemetryState(
     val noTouchPowerLockEnabled: Boolean = true,
     val antiThrottleBoosterEnabled: Boolean = true,
     val vivoGameCenterInstantPulseEnabled: Boolean = true,
+    val lowLatencyAudioDspLockEnabled: Boolean = true,
+    val memoryBandwidthPrefetchEnabled: Boolean = true,
+    val minimalPostProcessingDisplayEnabled: Boolean = true,
+    val touchSensorBoostEnabled: Boolean = true,
+    val storageIoBoostEnabled: Boolean = true,
     val wakeLockHeld: Boolean = false,
     val lockedPowerPercent: Int = 0,
     val gpuLockedDutyPercent: Int = 0,
     val realMeasuredThreadDutyPercent: Int = 0,
+    val memoryBandwidthMbPerSec: Int = 0,
+    val crc32AluOpsPerSecMillions: Int = 0,
+    val audioHardwareSampleRateHz: Int = 48000,
+    val audioFastMixerBufferFrames: Int = 192,
+    val audioFastPathActive: Boolean = false,
+    val sensorHardwareName: String = "",
+    val sensorSamplingHz: Int = 0,
+    val storageThroughputMbPerSec: Int = 0,
+    val liveMeasuredFps: Int = 60,
+    val liveFrameTimeMs: Float = 16.6f,
+    val networkDownstreamMbps: Int = 0,
+    val networkUpstreamMbps: Int = 0,
+    val glRendererName: String = "",
+    val glVendorName: String = "",
     val purgedBackgroundAppsCount: Int = 0,
     val freedRamMb: Int = 0,
     val powerStabilityHistory: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),

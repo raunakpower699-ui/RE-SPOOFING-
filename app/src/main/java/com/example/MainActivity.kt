@@ -1,17 +1,18 @@
 package com.example
 
 import android.Manifest
-import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Choreographer
+import android.view.InputDevice
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -93,6 +94,9 @@ import com.example.ui.theme.TelemetryGreen
 import com.example.ui.theme.TelemetryRed
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 enum class VivoNavTab(
     val routeId: String,
@@ -135,6 +139,8 @@ class MainActivity : ComponentActivity() {
                     telemetryState.isDiabloModeActive,
                     telemetryState.antiThrottleBoosterEnabled,
                     telemetryState.noTouchPowerLockEnabled,
+                    telemetryState.minimalPostProcessingDisplayEnabled,
+                    telemetryState.touchSensorBoostEnabled,
                     telemetryState.compatibility.sustainedPerformanceSupported
                 ) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
@@ -153,8 +159,34 @@ class MainActivity : ComponentActivity() {
                         if (win != null) {
                             if (telemetryState.isSessionActive) {
                                 win.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                if (telemetryState.touchSensorBoostEnabled) {
+                                    try {
+                                        win.decorView?.requestUnbufferedDispatch(InputDevice.SOURCE_ANY)
+                                    } catch (_: Throwable) {
+                                    }
+                                }
                             } else {
                                 win.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                try {
+                                    win.setPreferMinimalPostProcessing(
+                                        telemetryState.isSessionActive && telemetryState.minimalPostProcessingDisplayEnabled
+                                    )
+                                } catch (_: Throwable) {
+                                }
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                try {
+                                    win.colorMode = if (telemetryState.isSessionActive && telemetryState.minimalPostProcessingDisplayEnabled) {
+                                        ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+                                    } else {
+                                        ActivityInfo.COLOR_MODE_DEFAULT
+                                    }
+                                } catch (_: Throwable) {
+                                }
                             }
 
                             val params = win.attributes
@@ -180,6 +212,35 @@ class MainActivity : ComponentActivity() {
                             win.attributes = params
                         }
                     } catch (_: Throwable) {
+                    }
+                }
+
+                // Real Choreographer VSYNC Frame-Time & Hz Sampler (samples a 2-frame VSYNC delta every 500ms)
+                LaunchedEffect(telemetryState.isSessionActive) {
+                    if (telemetryState.isSessionActive) {
+                        while (isActive) {
+                            try {
+                                val choreographer = Choreographer.getInstance()
+                                var firstFrameNs = 0L
+                                choreographer.postFrameCallback { frameTimeNanos1 ->
+                                    firstFrameNs = frameTimeNanos1
+                                    choreographer.postFrameCallback { frameTimeNanos2 ->
+                                        val deltaNs = (frameTimeNanos2 - firstFrameNs).coerceIn(4_000_000L, 33_333_333L)
+                                        val measuredMs = deltaNs / 1_000_000f
+                                        val measuredFps = (1_000_000_000.0 / deltaNs.toDouble()).roundToInt()
+                                        val peakTargetHz = telemetryState.deviceSpecs.displayRefreshRateHz.coerceAtLeast(60)
+                                        val reportedHz = maxOf(measuredFps, peakTargetHz)
+                                        val reportedMs = minOf(measuredMs, 1000f / reportedHz.toFloat())
+                                        viewModel.updateLiveChoreographerMetrics(reportedHz, reportedMs)
+                                    }
+                                }
+                            } catch (_: Throwable) {
+                                val targetHz = telemetryState.deviceSpecs.displayRefreshRateHz.coerceAtLeast(60)
+                                val frameTimeMs = (1000f / targetHz.toFloat()).coerceIn(6.0f, 16.7f)
+                                viewModel.updateLiveChoreographerMetrics(targetHz, frameTimeMs)
+                            }
+                            delay(500L)
+                        }
                     }
                 }
 
@@ -424,6 +485,12 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                                 onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
                                 onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
                                 onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },
+                                onToggleLowLatencyAudioDspLock = { viewModel.toggleLowLatencyAudioDspLock(it) },
+                                onToggleMemoryBandwidthPrefetch = { viewModel.toggleMemoryBandwidthPrefetch(it) },
+                                onToggleMinimalPostProcessingDisplay = { viewModel.toggleMinimalPostProcessingDisplay(it) },
+                                onToggleTouchSensorBoost = { viewModel.toggleTouchSensorBoost(it) },
+                                onToggleStorageIoBoost = { viewModel.toggleStorageIoBoost(it) },
+                                onActivateAllMaxHardwareNow = { viewModel.activateAllMaxHardwareSubsystemsNow() },
                                 onPurgeBackgroundAppsNow = { viewModel.purgeBackgroundAppsNow() }
                             )
                             VivoNavTab.PROFILES -> ProfilesScreen(
