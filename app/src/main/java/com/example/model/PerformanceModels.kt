@@ -1,8 +1,8 @@
 package com.example.model
 
 /**
- * Supported performance profiles including ROG-inspired DIABLO MODE.
- * Default profile is PERFORMANCE.
+ * Supported performance profiles including DIABLO MODE (the only RedMagic/ROG extreme profile retained,
+ * focused 100% on unclamped CPU & OpenGL ES 2.0 GPU max performance extraction).
  * Note: requestSustainedMode is kept false for PERFORMANCE, GAMING, DIABLO_MODE, and SUSTAINED_PERFORMANCE
  * because Android's Window.setSustainedPerformanceMode(true) instructs OEM PowerHALs to clamp maximum
  * Prime/Gold CPU clocks down to ~85-90%. Keeping it false allows 97%-100% unclamped turbo clocks.
@@ -31,58 +31,58 @@ enum class PerformanceProfile(
     ),
     PERFORMANCE(
         id = "PERFORMANCE",
-        title = "PERFORMANCE",
-        subtitle = "Requests the highest supported Vivo / iQOO performance level",
-        description = "Default profile. Locks multi-cluster ADPF sessions, WakeLock anti-idle floor, and GameManager hints for 97%–100% steady power output.",
+        title = "PERFORMANCE (MAX)",
+        subtitle = "Locks 96%–100% CPU & GPU performance floor",
+        description = "Locks multi-cluster ADPF sessions, OpenGL ES 2.0 GPU shader floor, WakeLock anti-idle floor, and GameManager hints for 96%–100% steady power output.",
+        requestCpuHints = true,
+        requestGpuOrGameHints = true,
+        requestSustainedMode = false,
+        preferPowerEfficiency = false,
+        targetWorkDurationNs = 2_600_000L
+    ),
+    GAMING(
+        id = "GAMING",
+        title = "MONSTER GAMING",
+        subtitle = "Vivo / iQOO Monster Mode • 96%–100% CPU/GPU Lock",
+        description = "Keeps CPU & OpenGL ES 2.0 GPU frequency floors locked at 96%–100% even when not touching the screen or standing still in-game, eliminating 0% / 70% / 80% drops.",
+        requestCpuHints = true,
+        requestGpuOrGameHints = true,
+        requestSustainedMode = false,
+        preferPowerEfficiency = false,
+        targetWorkDurationNs = 2_100_000L
+    ),
+    DIABLO_MODE(
+        id = "DIABLO_MODE",
+        title = "DIABLO MODE",
+        subtitle = "Extreme Unclamped 97%–100% CPU & GPU Max Performance Lock",
+        description = "Pure Diablo Mode hardware overdrive. Unclamps Prime + Gold CPU clusters (1.6ms ADPF 5x Overdrive + 244ms/246ms SIMD/FPU saturation), locks OpenGL ES 2.0 hardware GPU shaders at 97%–100%, and runs non-stop until exited from the notification panel.",
+        requestCpuHints = true,
+        requestGpuOrGameHints = true,
+        requestSustainedMode = false,
+        preferPowerEfficiency = false,
+        targetWorkDurationNs = 1_600_000L
+    ),
+    SUSTAINED_PERFORMANCE(
+        id = "SUSTAINED_PERFORMANCE",
+        title = "SUSTAINED PERFORMANCE",
+        subtitle = "96%–100% Anti-Throttle Stability for marathon heavy loads",
+        description = "Engineered for 5–10+ minute CPU Throttling Tests and marathon gaming. Disables OEM 90% clock clamping and continuously reinforces ADPF Prime-Core + OpenGL GPU boost.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
         preferPowerEfficiency = false,
         targetWorkDurationNs = 3_000_000L
-    ),
-    GAMING(
-        id = "GAMING",
-        title = "GAMING",
-        subtitle = "No-Touch 100% Lock for Vivo / iQOO gaming workloads",
-        description = "Keeps CPU & GPU frequency floors locked even when not touching the screen or standing still in-game, eliminating 0% idle drops and frame stutters.",
-        requestCpuHints = true,
-        requestGpuOrGameHints = true,
-        requestSustainedMode = false,
-        preferPowerEfficiency = false,
-        targetWorkDurationNs = 2_500_000L
-    ),
-    DIABLO_MODE(
-        id = "DIABLO_MODE",
-        title = "DIABLO MODE",
-        subtitle = "ROG-Style Extreme Uninterruptible 97%–100% Lock",
-        description = "Inspired by ROG Phone X-Mode / Diablo Mode. Unclamps Prime + Gold CPU clusters (1.8ms ADPF Overdrive), locks UNINTERRUPTIBLE GameState, holds No-Touch CPU/GPU Frequency Lock, and sustains 97%+ power in 5–10+ min thermal tests.",
-        requestCpuHints = true,
-        requestGpuOrGameHints = true,
-        requestSustainedMode = false,
-        preferPowerEfficiency = false,
-        targetWorkDurationNs = 1_800_000L
-    ),
-    SUSTAINED_PERFORMANCE(
-        id = "SUSTAINED_PERFORMANCE",
-        title = "SUSTAINED PERFORMANCE",
-        subtitle = "97%+ Anti-Throttle Stability for 5–10+ minute heavy loads",
-        description = "Engineered for 5–10+ minute CPU Throttling Tests and marathon gaming. Disables OEM 90% clock clamping and continuously reinforces ADPF Prime-Core boost through warm thermal states.",
-        requestCpuHints = true,
-        requestGpuOrGameHints = true,
-        requestSustainedMode = false,
-        preferPowerEfficiency = false,
-        targetWorkDurationNs = 4_000_000L
     );
 
     companion object {
         fun fromId(id: String?): PerformanceProfile {
-            return entries.find { it.id == id } ?: PERFORMANCE
+            return entries.find { it.id == id } ?: DIABLO_MODE
         }
     }
 }
 
 /**
- * Intelligent CPU/GPU workload optimization focus (Section 4).
+ * Intelligent CPU/GPU workload optimization focus.
  */
 enum class WorkloadFocus(
     val id: String,
@@ -96,7 +96,7 @@ enum class WorkloadFocus(
         id = "COMBINED_MAX",
         title = "Combined CPU + GPU Lock",
         summary = "Highest supported overall performance mode (97%–100% Lock)",
-        detail = "Simultaneously locks multi-core CPU ADPF hints, No-Touch Governor Keep-Alive, and GPU RenderThread / Game Mode states.",
+        detail = "Simultaneously locks multi-core CPU ADPF hints, No-Touch Governor Keep-Alive, and OpenGL ES 2.0 GPU hardware shader states at 97%–100%.",
         enableCpuHints = true,
         enableGpuGameHints = true
     ),
@@ -112,7 +112,7 @@ enum class WorkloadFocus(
         id = "GPU_PRIMARY",
         title = "GPU / Game Priority",
         summary = "Prioritize GPU & Game Mode hints • Avoid extra CPU hints",
-        detail = "Prioritizes Android Game Mode and high-Hz GPU RenderThread frame lock without extra CPU worker pulses.",
+        detail = "Prioritizes Android Game Mode, OpenGL ES 2.0 GPU shader lock, and high-Hz RenderThread frame lock.",
         enableCpuHints = false,
         enableGpuGameHints = true
     );
@@ -125,7 +125,7 @@ enum class WorkloadFocus(
 }
 
 /**
- * Thermal state representation tuned for 5-10+ minute 97%+ stability.
+ * Thermal state representation tuned for 5-10+ minute 96%–100% stability.
  */
 enum class ThermalStatusLevel(
     val displayLabel: String,
@@ -133,13 +133,13 @@ enum class ThermalStatusLevel(
     val isThrottling: Boolean
 ) {
     NORMAL(
-        displayLabel = "NORMAL (99%–100% POWER)",
-        statusSummary = "Optimal thermal state • Full unclamped Prime + Gold core boost locked",
+        displayLabel = "NORMAL (98%–100% POWER)",
+        statusSummary = "Optimal thermal state • Full unclamped Prime + Gold CPU & OpenGL GPU boost locked",
         isThrottling = false
     ),
     WARM(
         displayLabel = "WARM (97%–99% BOOST LOCKED)",
-        statusSummary = "Anti-Throttle Thermal Booster active • Holding 97%+ power output without down-stepping",
+        statusSummary = "Anti-Throttle Thermal Booster active • Holding 97%–100% power output without down-stepping",
         isThrottling = false
     ),
     THROTTLING(
@@ -169,6 +169,7 @@ data class GpuStatusInfo(
     val directGpuControlExposed: Boolean = false,
     val hardwareModel: String = "",
     val renderFrameLockHz: Int = 60,
+    val gpuLockedDutyPercent: Int = 0,
     val noTouchGpuKeepAlive: Boolean = false,
     val statusDetail: String = "Your device does not expose GPU performance controls through Android. The app will use the available system performance APIs instead."
 )
@@ -261,7 +262,7 @@ data class InstalledAppItem(
 data class PerformanceTelemetryState(
     val isSessionActive: Boolean = false,
     val foregroundServiceRunning: Boolean = false,
-    val selectedProfile: PerformanceProfile = PerformanceProfile.PERFORMANCE,
+    val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
     val isDiabloModeActive: Boolean = false,
     val noTouchPowerLockEnabled: Boolean = true,
@@ -269,10 +270,12 @@ data class PerformanceTelemetryState(
     val vivoGameCenterInstantPulseEnabled: Boolean = true,
     val wakeLockHeld: Boolean = false,
     val lockedPowerPercent: Int = 0,
+    val gpuLockedDutyPercent: Int = 0,
     val realMeasuredThreadDutyPercent: Int = 0,
     val purgedBackgroundAppsCount: Int = 0,
     val freedRamMb: Int = 0,
     val powerStabilityHistory: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    val gpuStabilityHistory: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     val activeGamePackage: String? = null,
     val activeGameName: String? = null,
     val sessionStartEpochMs: Long = 0L,

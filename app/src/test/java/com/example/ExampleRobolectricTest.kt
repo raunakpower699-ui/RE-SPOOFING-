@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 class ExampleRobolectricTest {
 
     @Test
-    fun `verify RE Spoofing app identity and branding strings`() {
+    fun `verify RE Spoofing app identity and normal launch without intro video`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         assertEquals("RE Spoofing", context.getString(R.string.app_name))
         assertEquals("Maximum Available Performance Mode", context.getString(R.string.main_purpose))
@@ -26,7 +26,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `verify live phone specs detection, No-Touch 97-100 lock, and Diablo Mode overdrive`() {
+    fun `verify live phone specs, Diablo Mode, and 97-100 CPU and OpenGL GPU max lock`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val engine = AndroidPerformanceEngine.getInstance(context)
         engine.setVivoIqooEmulatorSimulation(false)
@@ -47,7 +47,7 @@ class ExampleRobolectricTest {
         assertFalse(engine.telemetryState.value.isSessionActive)
         assertEquals("LOCKED (VIVO/iQOO ONLY)", engine.telemetryState.value.cpuStatus.requestState)
 
-        // When Vivo/iQOO device environment is verified, DIABLO MODE starts with 1.8ms overdrive and 97%-100% power lock
+        // When Vivo/iQOO device environment is verified, DIABLO MODE locks both CPU & OpenGL ES 2.0 GPU in 97%-100% band
         engine.setVivoIqooEmulatorSimulation(true)
         val startedResult = engine.startPerformanceSession(
             profile = PerformanceProfile.DIABLO_MODE,
@@ -60,14 +60,16 @@ class ExampleRobolectricTest {
         assertTrue(diabloState.noTouchPowerLockEnabled)
         assertTrue(diabloState.antiThrottleBoosterEnabled)
         assertTrue(diabloState.lockedPowerPercent in 97..100)
+        assertTrue(diabloState.gpuLockedDutyPercent in 97..100)
         assertFalse(diabloState.sustainedModeRequestedOnWindow)
-        assertEquals(1_800_000L, diabloState.cpuStatus.targetDurationNanos)
+        assertEquals(1_600_000L, diabloState.cpuStatus.targetDurationNanos)
         assertEquals("ACTIVE (DIABLO OVERDRIVE)", diabloState.cpuStatus.requestState)
 
-        // Verify toggling No-Touch Hardware Lock OFF immediately drops forced duty
+        // Verify toggling No-Touch Hardware Lock OFF immediately drops forced CPU & GPU duty
         engine.setNoTouchPowerLockEnabled(false)
         assertFalse(engine.telemetryState.value.noTouchPowerLockEnabled)
         assertEquals(0, engine.telemetryState.value.realMeasuredThreadDutyPercent)
+        assertEquals(0, engine.telemetryState.value.gpuLockedDutyPercent)
         engine.setNoTouchPowerLockEnabled(true)
         assertTrue(engine.telemetryState.value.noTouchPowerLockEnabled)
 
@@ -81,6 +83,7 @@ class ExampleRobolectricTest {
         assertFalse(stoppedState.isSessionActive)
         assertFalse(stoppedState.isDiabloModeActive)
         assertEquals(0, stoppedState.lockedPowerPercent)
+        assertEquals(0, stoppedState.gpuLockedDutyPercent)
         assertEquals("INACTIVE", stoppedState.cpuStatus.requestState)
         assertEquals("INACTIVE", stoppedState.gpuStatus.requestState)
     }

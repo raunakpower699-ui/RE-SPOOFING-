@@ -223,12 +223,11 @@ fun AnimatedGlowOutlinedButton(
 }
 
 /**
- * Displays the RE Spoofing circular anime emblem logo (R.drawable.img_re_spoofing_logo)
- * with a split Golden-Yellow (#FFB300) and Crimson-Red (#E50914) ring border.
+ * Displays a clean vector emblem badge for RE Spoofing without any external photo or image asset.
  */
 @Composable
 fun VivoBrandingLogo(
-    customLogoUri: String?,
+    customLogoUri: String? = null,
     size: Dp = 56.dp,
     isSessionActive: Boolean = false,
     modifier: Modifier = Modifier
@@ -241,7 +240,7 @@ fun VivoBrandingLogo(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(Color.Black)
+            .background(Color(0xFF140D1E))
             .border(
                 width = if (isSessionActive) 2.5.dp else 1.8.dp,
                 brush = borderBrush,
@@ -250,23 +249,12 @@ fun VivoBrandingLogo(
             .testTag("vivo_spoofing_logo"),
         contentAlignment = Alignment.Center
     ) {
-        if (!customLogoUri.isNullOrBlank()) {
-            AsyncImage(
-                model = Uri.parse(customLogoUri),
-                contentDescription = "RE Spoofing Logo",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                error = painterResource(id = R.drawable.img_re_spoofing_logo),
-                placeholder = painterResource(id = R.drawable.img_re_spoofing_logo)
-            )
-        } else {
-            Image(
-                painter = painterResource(id = R.drawable.img_re_spoofing_logo),
-                contentDescription = "RE Spoofing Logo",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        }
+        Text(
+            text = "RE",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color(0xFFFFB300),
+            fontWeight = FontWeight.ExtraBold
+        )
     }
 }
 

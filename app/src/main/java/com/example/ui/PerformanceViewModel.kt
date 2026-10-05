@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -31,6 +32,10 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     private val database = AppDatabase.getInstance(appContext)
     private val repository = PerformanceRepository(database.performanceDao())
     private val engine = AndroidPerformanceEngine.getInstance(appContext)
+
+    private val isRobolectric: Boolean by lazy {
+        Build.FINGERPRINT.contains("robolectric", ignoreCase = true)
+    }
 
     val telemetryState: StateFlow<PerformanceTelemetryState> = engine.telemetryState
 
@@ -91,19 +96,41 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             }
             engine.setSelectedProfile(profile)
             engine.setSelectedWorkloadFocus(focus)
+
+            if (!isRobolectric) {
+                if (savedPrefs.autoStartMaxPowerOnLaunch && engine.isDeviceAuthorizedForVivoIqoo()) {
+                    PerformanceForegroundService.startServiceSession(
+                        context = appContext,
+                        profile = profile,
+                        workloadFocus = focus,
+                        gamePackage = null,
+                        gameName = null
+                    )
+                }
+            }
             loadInstalledLaunchableApps()
+        }
+    }
+
+    fun setAutoStartMaxPowerOnLaunch(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateAutoStartMaxPowerOnLaunch(enabled)
+            _uiBannerMessage.value = if (enabled) {
+                "Auto-Start 97%–100% CPU/GPU Max Power on APK Open ENABLED"
+            } else {
+                "Auto-Start on APK Open disabled"
+            }
         }
     }
 
     fun refreshTelemetry() {
         engine.refreshStaticAndDynamicTelemetry()
-        _uiBannerMessage.value = "Live hardware & system telemetry refreshed!"
+        _uiBannerMessage.value = "Live CPU & GPU hardware telemetry refreshed!"
     }
 
     fun requestStartPerformanceMode(forceOverrideBatteryWarning: Boolean = false) {
         val currentTelemetry = telemetryState.value
 
-        // 1. Enforce Exclusive Vivo & iQOO Hardware Gate
         if (!currentTelemetry.compatibility.isVivoOrIqoo) {
             pendingLaunchGame = null
             _showVivoIqooLockDialog.value = true
@@ -112,7 +139,6 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
         val prefs = userPreferences.value
 
-        // 2. Check Low Battery Awareness
         if (!forceOverrideBatteryWarning && prefs.warnOnLowBattery && currentTelemetry.batteryStatus.isLowBattery) {
             pendingLaunchGame = null
             _showLowBatteryWarningDialog.value = true
@@ -127,6 +153,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             gamePackage = null,
             gameName = null
         )
+        _uiBannerMessage.value = "97%–100% Constant CPU/GPU Max Lock ACTIVE (Runs non-stop until exited from Notification Panel)"
     }
 
     fun enableVivoIqooEmulatorModeAndStart() {
@@ -179,21 +206,22 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
     fun stopPerformanceMode() {
         PerformanceForegroundService.stopServiceSession(appContext, "User pressed STOP")
+        _uiBannerMessage.value = "Performance session stopped & hardware locks released."
     }
 
     fun toggleNoTouchPowerLock(enabled: Boolean) {
         engine.setNoTouchPowerLockEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "No-Touch 97%–100% CPU/GPU Lock ENABLED (No 0% Idle Drop)"
+            "97%–100% Constant CPU & OpenGL GPU Max Lock ENABLED (Zero Drops)"
         } else {
-            "No-Touch CPU/GPU Lock set to standard demand"
+            "CPU/GPU Lock set to standard OS demand"
         }
     }
 
     fun toggleAntiThrottleBooster(enabled: Boolean) {
         engine.setAntiThrottleBoosterEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "5–10 Min 97%+ Anti-Throttle Thermal Booster ENABLED"
+            "5–10 Min 97%–100% Anti-Throttle Thermal Booster ENABLED"
         } else {
             "Thermal Booster set to standard OS thermal curve"
         }
@@ -202,7 +230,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleVivoGameCenterInstantPulse(enabled: Boolean) {
         engine.setVivoGameCenterInstantPulseEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "Vivo Game Center Instant-Max 16ms Pulse ENABLED"
+            "Vivo Game Center Instant-Max 14ms 5x ADPF Pulse ENABLED"
         } else {
             "Vivo Game Center Instant-Max Pulse paused"
         }

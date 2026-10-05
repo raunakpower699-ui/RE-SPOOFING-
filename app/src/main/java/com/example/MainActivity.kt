@@ -101,17 +101,19 @@ enum class VivoNavTab(
     val unselectedIcon: ImageVector
 ) {
     DASHBOARD("dashboard", "Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
-    PROFILES("profiles", "Profiles", Icons.Filled.Tune, Icons.Outlined.Tune),
+    PROFILES("profiles", "Diablo & Modes", Icons.Filled.Tune, Icons.Outlined.Tune),
     GAMES("game_hub", "Game Hub", Icons.Filled.SportsEsports, Icons.Outlined.SportsEsports),
     COMPATIBILITY("compatibility", "Vivo Matrix", Icons.Filled.Memory, Icons.Outlined.Memory),
-    SETTINGS("settings", "Logo & Lock", Icons.Filled.Settings, Icons.Outlined.Settings)
+    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        AndroidPerformanceEngine.getInstance(applicationContext).setAppForegroundState(true)
+        val engine = AndroidPerformanceEngine.getInstance(applicationContext)
+        engine.setAppForegroundState(true)
+        engine.refreshStaticAndDynamicTelemetry()
     }
 
     override fun onStop() {
@@ -135,8 +137,6 @@ class MainActivity : ComponentActivity() {
                     telemetryState.noTouchPowerLockEnabled,
                     telemetryState.compatibility.sustainedPerformanceSupported
                 ) {
-                    // 1. Ensure Window SustainedPerformanceMode is FALSE when Anti-Throttle 97%+ Booster is active
-                    // so the OEM PowerHAL never clamps Prime/Gold CPU cores down to 90%.
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
                         telemetryState.compatibility.sustainedPerformanceSupported
                     ) {
@@ -148,7 +148,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 2. Keep screen & display controller awake and lock highest refresh rate mode when active
                     try {
                         val win = window
                         if (win != null) {
@@ -161,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             val params = win.attributes
                             if (telemetryState.isSessionActive) {
                                 val peakHz = telemetryState.deviceSpecs.displayRefreshRateHz
-                                    .coerceAtLeast(if (telemetryState.isDiabloModeActive) 165 else 120)
+                                    .coerceAtLeast(if (telemetryState.isDiabloModeActive) 165 else 144)
                                     .toFloat()
                                 params.preferredRefreshRate = peakHz
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -216,21 +215,6 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
         viewModel.requestStartPerformanceMode()
     }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: Throwable) {
-            }
-            viewModel.updateCustomBrandingLogo(uri.toString())
-        }
-    }
-
     val startActionWithNotificationCheck = {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
@@ -247,11 +231,7 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
         }
     }
 
-    val openCustomLogoPicker = {
-        photoPickerLauncher.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-        )
-    }
+    val openCustomLogoPicker = {}
 
     LaunchedEffect(bannerMessage) {
         val msg = bannerMessage
@@ -278,201 +258,205 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
         )
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isExpandedScreen = maxWidth >= 640.dp
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isExpandedScreen = maxWidth >= 640.dp
 
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = ObsidianBg,
-            contentWindowInsets = WindowInsets.safeDrawing,
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            VivoBrandingLogo(
-                                customLogoUri = preferences.customLogoUri,
-                                size = 36.dp,
-                                isSessionActive = telemetryState.isSessionActive
-                            )
-                            Column {
-                                Text(
-                                    text = "RE Spoofing",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = TextPrimary,
-                                    fontWeight = FontWeight.Bold
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = ObsidianBg,
+                contentWindowInsets = WindowInsets.safeDrawing,
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                VivoBrandingLogo(
+                                    customLogoUri = preferences.customLogoUri,
+                                    size = 36.dp,
+                                    isSessionActive = telemetryState.isSessionActive
                                 )
-                                Text(
-                                    text = "By Raunak Exploits • Vivo & iQOO",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFFFB300)
+                                Column {
+                                    Text(
+                                        text = "RE Spoofing",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "By Raunak Exploits • Diablo 97%–100% Lock",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFFFB300)
+                                    )
+                                }
+                            }
+                        },
+                        actions = {
+                            StatusPillBadge(
+                                text = when {
+                                    telemetryState.isSessionActive -> "${telemetryState.lockedPowerPercent.coerceIn(97, 100)}% LOCKED"
+                                    !telemetryState.compatibility.isVivoOrIqoo -> "VIVO LOCK"
+                                    else -> "STANDBY"
+                                },
+                                color = when {
+                                    telemetryState.isSessionActive -> TelemetryGreen
+                                    !telemetryState.compatibility.isVivoOrIqoo -> TelemetryRed
+                                    else -> TextSecondary
+                                },
+                                testTag = "top_bar_status_pill"
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { viewModel.refreshTelemetry() },
+                                modifier = Modifier.testTag("refresh_telemetry_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Refresh Telemetry",
+                                    tint = ElectricCyan
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = CarbonSurface,
+                            titleContentColor = TextPrimary
+                        )
+                    )
+                },
+                bottomBar = {
+                    if (!isExpandedScreen) {
+                        NavigationBar(
+                            containerColor = CarbonSurface,
+                            tonalElevation = 0.dp,
+                            modifier = Modifier
+                                .border(width = 1.dp, color = CarbonBorder)
+                                .testTag("bottom_navigation_bar")
+                        ) {
+                            VivoNavTab.entries.forEach { tab ->
+                                val selected = currentTab == tab
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { currentTab = tab },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = ObsidianBg,
+                                        selectedTextColor = Color(0xFFFFB300),
+                                        indicatorColor = Color(0xFFFFB300),
+                                        unselectedIconColor = TextSecondary,
+                                        unselectedTextColor = TextSecondary
+                                    ),
+                                    modifier = Modifier.testTag("nav_tab_${tab.routeId}")
                                 )
                             }
                         }
-                    },
-                    actions = {
-                        StatusPillBadge(
-                            text = when {
-                                telemetryState.isSessionActive -> "${telemetryState.lockedPowerPercent}% LOCKED"
-                                !telemetryState.compatibility.isVivoOrIqoo -> "VIVO LOCK"
-                                else -> "STANDBY"
-                            },
-                            color = when {
-                                telemetryState.isSessionActive -> TelemetryGreen
-                                !telemetryState.compatibility.isVivoOrIqoo -> TelemetryRed
-                                else -> TextSecondary
-                            },
-                            testTag = "top_bar_status_pill"
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(
-                            onClick = { viewModel.refreshTelemetry() },
-                            modifier = Modifier.testTag("refresh_telemetry_button")
+                    }
+                }
+            ) { innerPadding ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    if (isExpandedScreen) {
+                        NavigationRail(
+                            containerColor = CarbonSurface,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .border(width = 1.dp, color = CarbonBorder)
+                                .testTag("side_navigation_rail")
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Refresh Telemetry",
-                                tint = ElectricCyan
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = CarbonSurface,
-                        titleContentColor = TextPrimary
-                    )
-                )
-            },
-            bottomBar = {
-                if (!isExpandedScreen) {
-                    NavigationBar(
-                        containerColor = CarbonSurface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier
-                            .border(width = 1.dp, color = CarbonBorder)
-                            .testTag("bottom_navigation_bar")
-                    ) {
-                        VivoNavTab.entries.forEach { tab ->
-                            val selected = currentTab == tab
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { currentTab = tab },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.label,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = ObsidianBg,
-                                    selectedTextColor = Color(0xFFFFB300),
-                                    indicatorColor = Color(0xFFFFB300),
-                                    unselectedIconColor = TextSecondary,
-                                    unselectedTextColor = TextSecondary
-                                ),
-                                modifier = Modifier.testTag("nav_tab_${tab.routeId}")
-                            )
+                            VivoNavTab.entries.forEach { tab ->
+                                val selected = currentTab == tab
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { currentTab = tab },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.label,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = ObsidianBg,
+                                        selectedTextColor = Color(0xFFFFB300),
+                                        indicatorColor = Color(0xFFFFB300),
+                                        unselectedIconColor = TextSecondary,
+                                        unselectedTextColor = TextSecondary
+                                    ),
+                                    modifier = Modifier.testTag("nav_tab_${tab.routeId}")
+                                )
+                            }
                         }
                     }
-                }
-            }
-        ) { innerPadding ->
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                if (isExpandedScreen) {
-                    NavigationRail(
-                        containerColor = CarbonSurface,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .border(width = 1.dp, color = CarbonBorder)
-                            .testTag("side_navigation_rail")
-                    ) {
-                        VivoNavTab.entries.forEach { tab ->
-                            val selected = currentTab == tab
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { currentTab = tab },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.label,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = ObsidianBg,
-                                    selectedTextColor = Color(0xFFFFB300),
-                                    indicatorColor = Color(0xFFFFB300),
-                                    unselectedIconColor = TextSecondary,
-                                    unselectedTextColor = TextSecondary
-                                ),
-                                modifier = Modifier.testTag("nav_tab_${tab.routeId}")
-                            )
-                        }
-                    }
-                }
 
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    when (currentTab) {
-                        VivoNavTab.DASHBOARD -> DashboardScreen(
-                            state = telemetryState,
-                            customLogoUri = preferences.customLogoUri,
-                            onStartClicked = startActionWithNotificationCheck,
-                            onStopClicked = { viewModel.stopPerformanceMode() },
-                            onQuickProfileSelect = { viewModel.selectProfile(it) },
-                            onOpenLogoPicker = openCustomLogoPicker,
-                            onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
-                            onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
-                            onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
-                            onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },
-                            onPurgeBackgroundAppsNow = { viewModel.purgeBackgroundAppsNow() }
-                        )
-                        VivoNavTab.PROFILES -> ProfilesScreen(
-                            state = telemetryState,
-                            recentSessions = recentSessions,
-                            onSelectProfile = { viewModel.selectProfile(it) },
-                            onSelectWorkloadFocus = { viewModel.selectWorkloadFocus(it) },
-                            onClearHistory = { viewModel.clearSessionHistory() }
-                        )
-                        VivoNavTab.GAMES -> GameHubScreen(
-                            associatedGames = associatedGames,
-                            installedApps = installedApps,
-                            onAssociateGame = { pkg, name, profile, focus ->
-                                viewModel.associateGameWithProfile(pkg, name, profile, focus)
-                            },
-                            onRemoveGame = { viewModel.removeAssociatedGame(it) },
-                            onLaunchGameWithProfile = { viewModel.launchAssociatedGame(it) }
-                        )
-                        VivoNavTab.COMPATIBILITY -> CompatibilityScreen(
-                            compatibility = telemetryState.compatibility
-                        )
-                        VivoNavTab.SETTINGS -> BrandingSettingsScreen(
-                            preferences = preferences,
-                            compatibility = telemetryState.compatibility,
-                            isSessionActive = telemetryState.isSessionActive,
-                            onPickCustomLogo = openCustomLogoPicker,
-                            onResetDefaultLogo = { viewModel.updateCustomBrandingLogo(null) },
-                            onToggleLowBatteryWarning = { viewModel.setWarnOnLowBattery(it) },
-                            onToggleBootPreferenceRestore = { viewModel.setRememberPreferenceOnBoot(it) },
-                            onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) }
-                        )
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        when (currentTab) {
+                            VivoNavTab.DASHBOARD -> DashboardScreen(
+                                state = telemetryState,
+                                customLogoUri = preferences.customLogoUri,
+                                onStartClicked = startActionWithNotificationCheck,
+                                onStopClicked = { viewModel.stopPerformanceMode() },
+                                onQuickProfileSelect = { viewModel.selectProfile(it) },
+                                onOpenLogoPicker = openCustomLogoPicker,
+                                onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
+                                onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
+                                onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
+                                onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },
+                                onPurgeBackgroundAppsNow = { viewModel.purgeBackgroundAppsNow() }
+                            )
+                            VivoNavTab.PROFILES -> ProfilesScreen(
+                                state = telemetryState,
+                                recentSessions = recentSessions,
+                                onSelectProfile = { viewModel.selectProfile(it) },
+                                onSelectWorkloadFocus = { viewModel.selectWorkloadFocus(it) },
+                                onClearHistory = { viewModel.clearSessionHistory() }
+                            )
+                            VivoNavTab.GAMES -> GameHubScreen(
+                                associatedGames = associatedGames,
+                                installedApps = installedApps,
+                                onAssociateGame = { pkg, name, profile, focus ->
+                                    viewModel.associateGameWithProfile(pkg, name, profile, focus)
+                                },
+                                onRemoveGame = { viewModel.removeAssociatedGame(it) },
+                                onLaunchGameWithProfile = { viewModel.launchAssociatedGame(it) }
+                            )
+                            VivoNavTab.COMPATIBILITY -> CompatibilityScreen(
+                                compatibility = telemetryState.compatibility
+                            )
+                            VivoNavTab.SETTINGS -> BrandingSettingsScreen(
+                                preferences = preferences,
+                                compatibility = telemetryState.compatibility,
+                                isSessionActive = telemetryState.isSessionActive,
+                                onPickCustomLogo = openCustomLogoPicker,
+                                onResetDefaultLogo = { viewModel.updateCustomBrandingLogo(null) },
+                                onToggleLowBatteryWarning = { viewModel.setWarnOnLowBattery(it) },
+                                onToggleBootPreferenceRestore = { viewModel.setRememberPreferenceOnBoot(it) },
+                                onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
+                                onToggleAutoStartMaxPower = { viewModel.setAutoStartMaxPowerOnLaunch(it) }
+                            )
+                        }
                     }
                 }
             }

@@ -36,6 +36,21 @@ class PerformanceRepository(private val dao: PerformanceDao) {
         dao.saveUserPreferences(current.copy(customLogoUri = uri))
     }
 
+    suspend fun updateCustomIntroVideoUri(uri: String?) {
+        val current = getSnapshotPreferences()
+        dao.saveUserPreferences(current.copy(customIntroVideoUri = uri))
+    }
+
+    suspend fun updatePlayIntroAnimationOnStart(enabled: Boolean) {
+        val current = getSnapshotPreferences()
+        dao.saveUserPreferences(current.copy(playIntroAnimationOnStart = enabled))
+    }
+
+    suspend fun updateAutoStartMaxPowerOnLaunch(enabled: Boolean) {
+        val current = getSnapshotPreferences()
+        dao.saveUserPreferences(current.copy(autoStartMaxPowerOnLaunch = enabled))
+    }
+
     suspend fun updateBatteryWarningSetting(enabled: Boolean) {
         val current = getSnapshotPreferences()
         dao.saveUserPreferences(current.copy(warnOnLowBattery = enabled))

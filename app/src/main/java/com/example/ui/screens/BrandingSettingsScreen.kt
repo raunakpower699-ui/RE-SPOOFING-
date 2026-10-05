@@ -16,30 +16,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.UserPreferencesEntity
 import com.example.model.DeviceCompatibilityReport
-import com.example.ui.components.VivoBrandingLogo
 import com.example.ui.theme.CarbonBorder
 import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.ElectricCyan
@@ -53,11 +46,12 @@ fun BrandingSettingsScreen(
     preferences: UserPreferencesEntity,
     compatibility: DeviceCompatibilityReport,
     isSessionActive: Boolean,
-    onPickCustomLogo: () -> Unit,
-    onResetDefaultLogo: () -> Unit,
+    onPickCustomLogo: () -> Unit = {},
+    onResetDefaultLogo: () -> Unit = {},
     onToggleLowBatteryWarning: (Boolean) -> Unit,
     onToggleBootPreferenceRestore: (Boolean) -> Unit,
     onToggleVivoIqooSimulation: (Boolean) -> Unit,
+    onToggleAutoStartMaxPower: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -71,14 +65,14 @@ fun BrandingSettingsScreen(
         item {
             Column {
                 Text(
-                    text = "RE SPOOFING LOGO & VIVO/iQOO LOCK",
+                    text = "SYSTEM LOCK & PERFORMANCE SETTINGS",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Engineered by Raunak Exploits. Manage the RE Spoofing application logo, Vivo & iQOO exclusive hardware lock, boot behavior, and battery awareness safeguards.",
+                    text = "Engineered by Raunak Exploits. Configure Auto-Start 97%–100% CPU/GPU Diablo Mode lock on app launch, Vivo/iQOO hardware verification, and battery safeguards.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -87,80 +81,6 @@ fun BrandingSettingsScreen(
 
         item {
             com.example.ui.components.RaunakExploitsCreatorBadge()
-        }
-
-        // App Logo Integration Point Card
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, CarbonBorder, RoundedCornerShape(16.dp))
-                    .testTag("branding_logo_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CarbonSurface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        VivoBrandingLogo(
-                            customLogoUri = preferences.customLogoUri,
-                            size = 76.dp,
-                            isSessionActive = isSessionActive
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "RE Spoofing Official Logo",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (preferences.customLogoUri != null) {
-                                    "Using custom user-selected logo image across RE Spoofing."
-                                } else {
-                                    "Using official RE Spoofing circular yellow & red anime emblem (img_re_spoofing_logo)."
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = onPickCustomLogo,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFFB300),
-                                contentColor = ObsidianBg
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("select_custom_logo_button")
-                        ) {
-                            Icon(imageVector = Icons.Filled.Image, contentDescription = "Select Logo")
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Change Logo Photo", fontWeight = FontWeight.Bold)
-                        }
-
-                        if (preferences.customLogoUri != null) {
-                            OutlinedButton(
-                                onClick = onResetDefaultLogo,
-                                modifier = Modifier.testTag("reset_default_logo_button")
-                            ) {
-                                Icon(imageVector = Icons.Filled.RestartAlt, contentDescription = "Reset Logo")
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Default RE Logo", color = TextPrimary)
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // Vivo & iQOO Exclusive Device Lock Card
@@ -233,7 +153,7 @@ fun BrandingSettingsScreen(
             }
         }
 
-        // Boot & Battery Safeguard Preferences
+        // Auto-Start & Battery Safeguard Preferences
         item {
             Card(
                 modifier = Modifier
@@ -252,12 +172,42 @@ fun BrandingSettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "BOOT & BATTERY SAFEGUARDS",
+                            text = "AUTO-START 97%–100% LOCK & SAFEGUARDS",
                             style = MaterialTheme.typography.labelLarge,
                             color = ElectricCyan
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-Start 97%–100% Max Performance on APK Open",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Immediately locks CPU and OpenGL ES 2.0 GPU at 97%–100% as soon as the app opens.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = preferences.autoStartMaxPowerOnLaunch,
+                            onCheckedChange = onToggleAutoStartMaxPower,
+                            modifier = Modifier.testTag("switch_auto_start_max_power")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = CarbonBorder)
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
@@ -303,7 +253,7 @@ fun BrandingSettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Restores only your saved profile preference after reboot. Never automatically activates maximum performance without user interaction.",
+                                text = "Restores your saved profile preference after device reboot.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = TextSecondary
                             )
