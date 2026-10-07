@@ -118,6 +118,7 @@ fun DashboardScreen(
     onOpenLogoPicker: () -> Unit,
     onToggleVivoIqooSimulation: (Boolean) -> Unit,
     onToggleOriginOs6Overdrive: (Boolean) -> Unit = {},
+    onToggleGlDitherAndFastestHints: (Boolean) -> Unit = {},
     onToggleTargetWindowHookState: (Boolean) -> Unit = {},
     onToggleAutoRestoreOnMinimize: (Boolean) -> Unit = {},
     onToggleRenderScaleSpoof: (Boolean) -> Unit = {},
@@ -174,13 +175,12 @@ fun DashboardScreen(
             )
         }
 
-        // 5. [SYSTEM DIRECTIVE: DYNAMIC_PER_APP_SCALE_OVERDRIVE] (0.5x App-Only Scale & 1.0x Auto-Restore)
+        // 5. UNLIMITED FPS BENCHMARKING MODE (Android NDK / OpenGL ES Pipeline)
         item {
             OriginOs6OverdriveDirectiveCard(
                 state = state,
                 onToggleOriginOs6Overdrive = onToggleOriginOs6Overdrive,
-                onToggleTargetWindowHookState = onToggleTargetWindowHookState,
-                onToggleAutoRestoreOnMinimize = onToggleAutoRestoreOnMinimize,
+                onToggleGlDitherAndFastestHints = onToggleGlDitherAndFastestHints,
                 onToggleRenderScaleSpoof = onToggleRenderScaleSpoof,
                 onToggleVSyncDisableSwapZero = onToggleVSyncDisableSwapZero,
                 onLaunchVolumeShaderPipeline = onLaunchVolumeShaderPipeline
@@ -820,16 +820,14 @@ private fun BoosterToggleRow(
 private fun OriginOs6OverdriveDirectiveCard(
     state: PerformanceTelemetryState,
     onToggleOriginOs6Overdrive: (Boolean) -> Unit,
-    onToggleTargetWindowHookState: (Boolean) -> Unit,
-    onToggleAutoRestoreOnMinimize: (Boolean) -> Unit,
+    onToggleGlDitherAndFastestHints: (Boolean) -> Unit,
     onToggleRenderScaleSpoof: (Boolean) -> Unit,
     onToggleVSyncDisableSwapZero: (Boolean) -> Unit,
     onLaunchVolumeShaderPipeline: () -> Unit
 ) {
     val isOriginActive = state.originOs6OverdriveEnabled
-    val isHookActive = state.isTargetWindowHookActive
     val borderBrush = Brush.linearGradient(
-        colors = if (isOriginActive && isHookActive) {
+        colors = if (isOriginActive && state.vSyncDisabledEglSwapZero) {
             listOf(TelemetryGreen, ElectricCyan, Color(0xFFFFB300))
         } else {
             listOf(Color(0xFFFFB300), ElectricCyan.copy(alpha = 0.7f))
@@ -859,28 +857,28 @@ private fun OriginOs6OverdriveDirectiveCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.DeveloperBoard,
-                        contentDescription = "Dynamic Per-App Scale Overdrive",
+                        contentDescription = "Unlimited FPS Benchmarking Mode",
                         tint = TelemetryGreen,
                         modifier = Modifier.size(26.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "DYNAMIC_PER_APP_SCALE_OVERDRIVE",
+                            text = "UNLIMITED FPS BENCHMARKING MODE",
                             style = MaterialTheme.typography.titleMedium,
                             color = TelemetryGreen,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "OriginOS 6 (Vivo T4X) • Isolated Native Surface Scaler & Kernel Governor",
+                            text = "Android NDK / OpenGL ES Pipeline • Maximum Raw Peak & Sustained FPS",
                             style = MaterialTheme.typography.labelSmall,
                             color = ElectricCyan
                         )
                     }
                 }
                 StatusPillBadge(
-                    text = if (isHookActive && state.renderScaleSpoofEnabled) "0.5x APP_ONLY" else "1.0x NATIVE",
-                    color = if (isHookActive && state.renderScaleSpoofEnabled) TelemetryGreen else Color(0xFFFFB300),
+                    text = if (state.vSyncDisabledEglSwapZero && state.nativeCanvasBoundariesMaintained) "UNLIMITED FPS" else "STANDARD",
+                    color = if (state.vSyncDisabledEglSwapZero && state.nativeCanvasBoundariesMaintained) TelemetryGreen else Color(0xFFFFB300),
                     testTag = "originos6_fps_badge"
                 )
             }
@@ -911,7 +909,7 @@ private fun OriginOs6OverdriveDirectiveCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "TARGET: ${state.targetPipelineProcess} • GLOBAL DPI: ${state.globalDisplayDpiLabel}",
+                        text = "TARGET: ${state.targetPipelineProcess} • CANVAS: ${state.globalDisplayDpiLabel}",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFFFB300)
                     )
@@ -921,48 +919,34 @@ private fun OriginOs6OverdriveDirectiveCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             DiabloTelemetryRow(
-                "1. TARGET_WINDOW_HOOK",
-                if (isHookActive) {
-                    "ACTIVE (App-Only • Global DPI Untouched)"
+                "1. DISABLE V-SYNC & FRAME LIMITS",
+                if (state.vSyncDisabledEglSwapZero) {
+                    "eglSwapInterval(0) • Zero Refresh Caps"
                 } else {
-                    "MINIMIZED / HOME (Global DPI Untouched)"
+                    "eglSwapInterval(1) (VSYNC Paced)"
                 }
             )
             DiabloTelemetryRow(
-                "2. DYNAMIC_CANVAS_DOWNSCALE",
+                "2. MAXIMIZE GRAPHICS THROUGHPUT",
+                if (state.glDitherDisabledAndFastestHints) {
+                    "GL_DITHER: OFF • glHint: GL_FASTEST • Thermal Bypass"
+                } else {
+                    "Standard OpenGL Hints"
+                }
+            )
+            DiabloTelemetryRow(
+                "3. UNLIMITED FPS BENCHMARK MODE",
+                "GPU $gpuDuty% / CPU $cpuDuty% ($gflops GFLOP/s Raw Clocks)"
+            )
+            DiabloTelemetryRow(
+                "4. NATIVE CANVAS BOUNDARIES",
                 state.internalShaderResolutionLabel
-            )
-            DiabloTelemetryRow(
-                "3. AUTO_RESTORE_PROTOCOL",
-                if (!isHookActive && state.autoRestoreOnMinimizeEnabled) {
-                    "ENGAGED -> Restored 1.0x (1080p Native)"
-                } else if (state.autoRestoreOnMinimizeEnabled) {
-                    "ARMED (Instant 1.0x 1080p on Minimize/Home)"
-                } else {
-                    "Disabled"
-                }
-            )
-            DiabloTelemetryRow(
-                "4. PERF_GOVERNOR_LOCK",
-                if (isHookActive) {
-                    "LOCKED: GPU $gpuDuty% / CPU $cpuDuty% ($gflops GFLOP/s)"
-                } else {
-                    "STEPPED DOWN (Target Minimized)"
-                }
-            )
-            DiabloTelemetryRow(
-                "5. V_SYNC_BYPASS",
-                if (state.vSyncDisabledEglSwapZero && isHookActive) {
-                    "eglSwapInterval = 0 (Zero Frame Cap)"
-                } else {
-                    "eglSwapInterval = 1 (Native VSYNC)"
-                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             AnimatedGlowButton(
-                text = "LAUNCH TARGET (0.5x MANDELBULB 3D PIPELINE)",
+                text = "LAUNCH UNLIMITED FPS 3D BENCHMARK PIPELINE",
                 icon = Icons.Filled.PlayArrow,
                 onClick = onLaunchVolumeShaderPipeline,
                 enabled = true,
@@ -978,53 +962,11 @@ private fun OriginOs6OverdriveDirectiveCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             BoosterToggleRow(
-                title = "1. TARGET_WINDOW_HOOK (Foreground Target Window Active)",
-                subtitle = "ON = Target app in foreground (0.5x canvas scale + 100% CPU/GPU lock). OFF = Simulates Home Button / Minimize -> Immediately triggers 1.0x (1080p native) Auto-Restore. Global Display DPI is NEVER modified.",
-                checked = state.isTargetWindowHookActive,
-                onCheckedChange = onToggleTargetWindowHookState,
-                accentColor = TelemetryGreen,
-                testTag = "toggle_target_window_hook"
-            )
-
-            HorizontalDivider(
-                color = CarbonBorder.copy(alpha = 0.5f),
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-
-            BoosterToggleRow(
-                title = "2. DYNAMIC_CANVAS_DOWNSCALE (0.5x App-Only Viewport)",
-                subtitle = "Forces internal WebGL/Vulkan/OpenGL viewport canvas to 0.5x resolution scale (${state.internalShaderResolutionLabel}) during active target session",
-                checked = state.renderScaleSpoofEnabled,
-                onCheckedChange = onToggleRenderScaleSpoof,
-                accentColor = TelemetryGreen,
-                testTag = "toggle_render_scale_spoof"
-            )
-
-            HorizontalDivider(
-                color = CarbonBorder.copy(alpha = 0.5f),
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-
-            BoosterToggleRow(
-                title = "3. AUTO_RESTORE_PROTOCOL (1.0x Native on Minimize / Home)",
-                subtitle = "Immediately restores Viewport Canvas to 1.0x (1080p native) as soon as target app is minimized, closed, or Home Button is pressed",
-                checked = state.autoRestoreOnMinimizeEnabled,
-                onCheckedChange = onToggleAutoRestoreOnMinimize,
-                accentColor = Color(0xFFFFB300),
-                testTag = "toggle_auto_restore_on_minimize"
-            )
-
-            HorizontalDivider(
-                color = CarbonBorder.copy(alpha = 0.5f),
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-
-            BoosterToggleRow(
-                title = "5. V_SYNC_BYPASS (Force eglSwapInterval = 0 • Zero Stutter)",
-                subtitle = "Forces EGL14.eglSwapInterval(eglDisplay, 0) for target surface to eliminate frame-rate capping and stuttering",
+                title = "1. DISABLE V-SYNC & FRAME LIMITS (Force eglSwapInterval(0))",
+                subtitle = "Always forces eglSwapInterval(0) to bypass display refresh rate synchronization and remove hard caps without interfering with SurfaceFlinger execution loops",
                 checked = state.vSyncDisabledEglSwapZero,
                 onCheckedChange = onToggleVSyncDisableSwapZero,
-                accentColor = ElectricCyan,
+                accentColor = TelemetryGreen,
                 testTag = "toggle_vsync_disable_swap_zero"
             )
 
@@ -1034,8 +976,36 @@ private fun OriginOs6OverdriveDirectiveCard(
             )
 
             BoosterToggleRow(
-                title = "OriginOS 6 (Vivo T4X) Isolated Surface Scaler & Kernel Governor",
-                subtitle = "Master switch for TARGET_WINDOW_HOOK + 0.5x Dynamic Canvas + 1.0x Auto-Restore + 100% Governor Lock + V-Sync Bypass",
+                title = "2. MAXIMIZE GRAPHICS THROUGHPUT (GL_DITHER OFF • GL_FASTEST)",
+                subtitle = "Prioritizes raw throughput over frame stability under synthetic benchmark stress tests. Disables dithering, forces fastest glHint parameters, and bypasses thermal hooks",
+                checked = state.glDitherDisabledAndFastestHints,
+                onCheckedChange = onToggleGlDitherAndFastestHints,
+                accentColor = ElectricCyan,
+                testTag = "toggle_gl_fastest_throughput"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "3. MAINTAIN 1.0x NATIVE CANVAS BOUNDARIES (Zero Surface Downsampling)",
+                subtitle = "Maintains native canvas rendering boundaries (${state.internalShaderResolutionLabel}) to avoid SurfaceFlinger interference, frame stalls, or sub-1 FPS regression bugs",
+                checked = state.nativeCanvasBoundariesMaintained,
+                onCheckedChange = { maintainNative -> onToggleRenderScaleSpoof(!maintainNative) },
+                accentColor = Color(0xFFFFB300),
+                testTag = "toggle_native_canvas_boundaries"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "Unlimited FPS Benchmarking Mode Master Governor",
+                subtitle = "Master switch for eglSwapInterval(0) + GL_DITHER OFF + GL_FASTEST Hints + 1.0x Native Canvas Boundaries + 100% Raw GPU Clocks",
                 checked = state.originOs6OverdriveEnabled,
                 onCheckedChange = onToggleOriginOs6Overdrive,
                 accentColor = TelemetryGreen,

@@ -47,7 +47,7 @@ class ExampleRobolectricTest {
         assertFalse(engine.telemetryState.value.isSessionActive)
         assertEquals("LOCKED (VIVO/iQOO ONLY)", engine.telemetryState.value.cpuStatus.requestState)
 
-        // Unlock Vivo/iQOO verification and activate all max hardware subsystems (OriginOS 6 Dynamic Per-App 0.5x Scale Overdrive)
+        // Unlock Vivo/iQOO verification and activate all max hardware subsystems (Unlimited FPS Benchmarking Mode)
         engine.setVivoIqooEmulatorSimulation(true)
         engine.activateAllMaxHardwareSubsystems()
         val startedOriginResult = engine.startPerformanceSession(
@@ -59,49 +59,29 @@ class ExampleRobolectricTest {
         assertTrue(originState.isSessionActive)
         assertTrue(originState.originOs6OverdriveEnabled)
         assertTrue(originState.extremeRenderOverdriveEnabled)
-        assertTrue(originState.dynamicPerAppScaleEnabled)
-        assertTrue(originState.autoRestoreOnMinimizeEnabled)
-        assertTrue(originState.isTargetWindowHookActive)
-        assertTrue(originState.globalDisplayDpiLabel.contains("UNTOUCHED"))
-        assertTrue(originState.renderScaleSpoofEnabled)
-        assertEquals(0.50f, originState.renderScaleFactor, 0.001f)
-        assertTrue(originState.internalShaderResolutionLabel.contains("540 x 1200"))
         assertTrue(originState.vSyncDisabledEglSwapZero)
+        assertTrue(originState.glDitherDisabledAndFastestHints)
+        assertTrue(originState.nativeCanvasBoundariesMaintained)
+        assertFalse(originState.renderScaleSpoofEnabled)
+        assertEquals(1.00f, originState.renderScaleFactor, 0.001f)
+        assertTrue(originState.internalShaderResolutionLabel.contains("1080 x 2400"))
+        assertTrue(originState.internalShaderResolutionLabel.contains("Zero Surface Downsampling"))
+        assertTrue(originState.globalDisplayDpiLabel.contains("1.0x NATIVE CANVAS"))
         assertTrue(originState.gpuFlopOverdriveGflops >= 1400)
         assertTrue(originState.vivoPemThermalDaemonSuppressed)
         assertEquals(144, originState.targetFrameRateFps)
         assertEquals(64, originState.volumeShaderRayStepsPerFrame)
         assertEquals(
-            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED",
+            "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS",
             originState.originOsOutputStatus
         )
         assertEquals(
-            "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
+            "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED",
             originState.secondaryDirectiveStatus
         )
-        assertTrue(originState.targetPipelineProcess.contains("com.volumeshader"))
-        assertTrue(originState.targetPipelineProcess.contains("Mandelbulb"))
+        assertTrue(originState.targetPipelineProcess.contains("OpenGL ES"))
         assertEquals(1_400_000L, originState.cpuStatus.targetDurationNanos)
         assertEquals("ACTIVE (ORIGINOS6 OVERDRIVE)", originState.cpuStatus.requestState)
-
-        // Verify AUTO_RESTORE_PROTOCOL: Minimizing / pressing Home immediately restores 1.0x (1080p native)
-        engine.setTargetWindowHookActive(false, "Home Button pressed")
-        val minimizedState = engine.telemetryState.value
-        assertFalse(minimizedState.isTargetWindowHookActive)
-        assertEquals(1.00f, minimizedState.renderScaleFactor, 0.001f)
-        assertTrue(minimizedState.internalShaderResolutionLabel.contains("1080 x 2400"))
-        assertEquals(
-            "AUTO_RESTORE_1.0X_NATIVE | RESOLUTION_SCALE: 1.0x (1080p) | GLOBAL_DPI: UNTOUCHED",
-            minimizedState.originOsOutputStatus
-        )
-
-        // Returning to target window restores 0.5x (APP_ONLY) scale
-        engine.setTargetWindowHookActive(true, "Target window foreground")
-        assertEquals(0.50f, engine.telemetryState.value.renderScaleFactor, 0.001f)
-        assertEquals(
-            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED",
-            engine.telemetryState.value.originOsOutputStatus
-        )
 
         // Also verify DIABLO_MODE profile
         val startedResult = engine.startPerformanceSession(

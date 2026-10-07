@@ -1,10 +1,10 @@
 package com.example.model
 
 /**
- * Supported performance profiles including ORIGINOS_6_OVERDRIVE (DYNAMIC PER-APP 0.5x SCALE OVERDRIVE)
- * and DIABLO MODE (focused 100% on unclamped CPU, OpenGL ES 3.0/2.0 Extreme Mandelbulb 3D VolumeShader GPU,
- * 0.5x Per-App Dynamic Canvas Downscale with 1.0x Auto-Restore on Home/Minimize, Global DPI Untouched,
- * eglSwapInterval = 0 V-Sync Bypass, Vulkan/WebGL buffers, LPDDR Memory, Audio DSP, Sensor, Display 144Hz+ & UFS Storage).
+ * Supported performance profiles including ORIGINOS_6_OVERDRIVE (UNLIMITED FPS BENCHMARKING MODE)
+ * and DIABLO MODE (focused 100% on unclamped CPU, OpenGL ES 3.0/2.0 & Vulkan Raw GPU Throughput,
+ * eglSwapInterval(0) V-Sync Bypass, glDisable(GL_DITHER) + GL_FASTEST glHint pipeline,
+ * 1.0x Native Canvas Boundaries with Zero Artificial Surface Downsampling, LPDDR Memory, Audio DSP, Sensor & UFS Storage).
  */
 enum class PerformanceProfile(
     val id: String,
@@ -19,9 +19,9 @@ enum class PerformanceProfile(
 ) {
     ORIGINOS_6_OVERDRIVE(
         id = "ORIGINOS_6_OVERDRIVE",
-        title = "ORIGINOS 6 (0.5x APP SCALE)",
-        subtitle = "Vivo T4X • 0.5x App-Only Canvas • 1.0x Auto-Restore • Global DPI Untouched",
-        description = "TARGET_WINDOW_HOOK + DYNAMIC_CANVAS_DOWNSCALE (0.5x App-Only / 540x1200) + AUTO_RESTORE_PROTOCOL (1.0x 1080p on Minimize/Home) + PERF_GOVERNOR_LOCK (100% CPU/GPU Duty) + V_SYNC_BYPASS (eglSwapInterval 0).",
+        title = "UNLIMITED FPS BENCHMARK",
+        subtitle = "eglSwapInterval(0) • GL_DITHER OFF • GL_FASTEST Hints • 1.0x Native Canvas",
+        description = "1. DISABLE V-SYNC & FRAME LIMITS (eglSwapInterval(0), zero artificial resolution scaling/downsampling) + 2. MAXIMIZE GRAPHICS THROUGHPUT (glDisable(GL_DITHER), GL_FASTEST glHint, thermal bypass) + 3. UNLIMITED FPS BENCHMARKING MODE (1.0x native canvas boundaries, zero frame stall or sub-1 FPS regressions).",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
@@ -277,23 +277,25 @@ data class PerformanceTelemetryState(
     val isDiabloModeActive: Boolean = false,
     val originOs6OverdriveEnabled: Boolean = true,
     val extremeRenderOverdriveEnabled: Boolean = true,
-    val dynamicPerAppScaleEnabled: Boolean = true,
+    val dynamicPerAppScaleEnabled: Boolean = false,
     val autoRestoreOnMinimizeEnabled: Boolean = true,
     val isTargetWindowHookActive: Boolean = true,
-    val globalDisplayDpiLabel: String = "UNTOUCHED (Native System UI DPI)",
-    val renderScaleSpoofEnabled: Boolean = true,
-    val renderScaleFactor: Float = 0.50f,
-    val internalShaderResolutionLabel: String = "540 x 1200 (0.5x APP_ONLY Scale • -75% Pixel Load)",
-    val displaySpoofResolutionLabel: String = "1080 x 2400 (1080p Native Display • Global DPI Untouched)",
+    val glDitherDisabledAndFastestHints: Boolean = true,
+    val nativeCanvasBoundariesMaintained: Boolean = true,
+    val globalDisplayDpiLabel: String = "1.0x NATIVE CANVAS (Zero SurfaceFlinger Interference)",
+    val renderScaleSpoofEnabled: Boolean = false,
+    val renderScaleFactor: Float = 1.00f,
+    val internalShaderResolutionLabel: String = "1080 x 2400 (1.0x Native Canvas • Zero Surface Downsampling)",
+    val displaySpoofResolutionLabel: String = "1080 x 2400 (1080p Native Canvas • Zero Frame Stall)",
     val vSyncDisabledEglSwapZero: Boolean = true,
     val gpuFlopOverdriveGflops: Int = 0,
     val vivoPemThermalDaemonSuppressed: Boolean = true,
-    val targetPipelineProcess: String = "com.volumeshader (EXTREME Mandelbulb 3D Shader)",
-    val targetFrameRateLabel: String = "UNLOCKED_MAXIMUM_PHYSICAL_LIMIT (eglSwapInterval 0)",
+    val targetPipelineProcess: String = "Android NDK / OpenGL ES / Vulkan Pipeline (com.volumeshader)",
+    val targetFrameRateLabel: String = "UNLIMITED_FPS_BENCHMARKING_MODE (eglSwapInterval 0)",
     val targetFrameRateFps: Int = 144,
-    val originOsOutputStatus: String = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED",
-    val secondaryDirectiveStatus: String = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
-    val vulkanWebGlPipelineStatus: String = "Vulkan 1.3 + GLES 3.0 + WebGL 2.0 0.5x Per-App Mandelbulb 3D Buffers",
+    val originOsOutputStatus: String = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS",
+    val secondaryDirectiveStatus: String = "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED",
+    val vulkanWebGlPipelineStatus: String = "OpenGL ES 3.2 + Vulkan 1.3 (GL_DITHER OFF • GL_FASTEST Hints • 1.0x Native Canvas)",
     val noTouchPowerLockEnabled: Boolean = true,
     val antiThrottleBoosterEnabled: Boolean = true,
     val vivoGameCenterInstantPulseEnabled: Boolean = true,

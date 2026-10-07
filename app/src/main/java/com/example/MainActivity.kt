@@ -493,6 +493,7 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                                 onOpenLogoPicker = openCustomLogoPicker,
                                 onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
                                 onToggleOriginOs6Overdrive = { viewModel.toggleOriginOs6Overdrive(it) },
+                                onToggleGlDitherAndFastestHints = { viewModel.toggleGlDitherDisabledAndFastestHints(it) },
                                 onToggleTargetWindowHookState = { viewModel.toggleTargetWindowHookState(it) },
                                 onToggleAutoRestoreOnMinimize = { viewModel.toggleAutoRestoreOnMinimize(it) },
                                 onToggleRenderScaleSpoof = { viewModel.toggleRenderScaleSpoof(it) },

@@ -143,18 +143,27 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
                 gamePackage = currentTelemetry.activeGamePackage ?: "com.volumeshader",
                 gameName = currentTelemetry.activeGameName ?: "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
             )
-            _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
+            _uiBannerMessage.value = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
         } else {
-            _uiBannerMessage.value = "Dynamic Per-App 0.5x Scale Overdrive armed — Unlock Vivo/iQOO mode to ignite!"
+            _uiBannerMessage.value = "Unlimited FPS Benchmarking Mode armed — Unlock Vivo/iQOO mode to ignite!"
         }
     }
 
     fun toggleOriginOs6Overdrive(enabled: Boolean) {
         engine.setOriginOs6OverdriveEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
+            "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
         } else {
-            "OriginOS 6 Dynamic Per-App Scale Overdrive set to standby"
+            "Unlimited FPS Benchmarking Mode set to standby"
+        }
+    }
+
+    fun toggleGlDitherDisabledAndFastestHints(enabled: Boolean) {
+        engine.setGlDitherDisabledAndFastestHints(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "MAXIMIZE GRAPHICS THROUGHPUT: glDisable(GL_DITHER) + glHint(GL_FASTEST) + Thermal Bypass ACTIVE"
+        } else {
+            "Standard OpenGL dithering & glHint parameters restored"
         }
     }
 
@@ -163,35 +172,27 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             active = active,
             reason = if (active) "Target Window Active (Foreground Hook)" else "Home Button / Target App Minimized"
         )
-        _uiBannerMessage.value = if (active) {
-            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
-        } else {
-            "AUTO_RESTORE_PROTOCOL: Restored Viewport Canvas to 1.0x (1080p Native) • Global DPI Untouched"
-        }
+        _uiBannerMessage.value = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
     }
 
     fun toggleAutoRestoreOnMinimize(enabled: Boolean) {
         engine.setAutoRestoreOnMinimizeEnabled(enabled)
-        _uiBannerMessage.value = if (enabled) {
-            "AUTO_RESTORE_PROTOCOL ON: Instant 1.0x (1080p) restore on Minimize / Home Button"
-        } else {
-            "AUTO_RESTORE_PROTOCOL OFF: Continuous 0.5x scale lock"
-        }
+        _uiBannerMessage.value = "1.0x Native Canvas Boundaries maintained (Zero SurfaceFlinger Interference)"
     }
 
     fun toggleRenderScaleSpoof(enabled: Boolean) {
         engine.setRenderScaleSpoofEnabled(enabled)
-        _uiBannerMessage.value = if (enabled) {
-            "DYNAMIC_CANVAS_DOWNSCALE: 0.5x App-Only Viewport (540x1200) ACTIVE • Global DPI Untouched"
+        _uiBannerMessage.value = if (!enabled) {
+            "1.0x NATIVE CANVAS BOUNDARIES: Zero Artificial Resolution Scaling / Zero SurfaceFlinger Downsampling"
         } else {
-            "Viewport Canvas restored to 1.0x (1080p native) resolution"
+            "Scaled viewport mode enabled"
         }
     }
 
     fun toggleVSyncDisableEglSwapZero(enabled: Boolean) {
         engine.setVSyncDisableEglSwapZero(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "V_SYNC_BYPASS: Forced eglSwapInterval(0) for target surface — Zero frame capping"
+            "DISABLE V-SYNC & FRAME LIMITS: Forced eglSwapInterval(0) — Display refresh caps bypassed"
         } else {
             "V-Sync restored to standard eglSwapInterval(1)"
         }
@@ -228,12 +229,12 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 appContext.startActivity(launchIntent)
-                _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED | Launching com.volumeshader!"
+                _uiBannerMessage.value = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS | Launching com.volumeshader!"
             } else {
-                _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
+                _uiBannerMessage.value = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
             }
         } catch (_: Throwable) {
-            _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
+            _uiBannerMessage.value = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
         }
     }
 
