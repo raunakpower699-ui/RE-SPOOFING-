@@ -143,34 +143,55 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
                 gamePackage = currentTelemetry.activeGamePackage ?: "com.volumeshader",
                 gameName = currentTelemetry.activeGameName ?: "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
             )
-            _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
+            _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
         } else {
-            _uiBannerMessage.value = "Extreme Render Overdrive armed — Unlock Vivo/iQOO mode to ignite!"
+            _uiBannerMessage.value = "Dynamic Per-App 0.5x Scale Overdrive armed — Unlock Vivo/iQOO mode to ignite!"
         }
     }
 
     fun toggleOriginOs6Overdrive(enabled: Boolean) {
         engine.setOriginOs6OverdriveEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
+            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
         } else {
-            "OriginOS 6 Extreme Render Overdrive set to standby"
+            "OriginOS 6 Dynamic Per-App Scale Overdrive set to standby"
+        }
+    }
+
+    fun toggleTargetWindowHookState(active: Boolean) {
+        engine.setTargetWindowHookActive(
+            active = active,
+            reason = if (active) "Target Window Active (Foreground Hook)" else "Home Button / Target App Minimized"
+        )
+        _uiBannerMessage.value = if (active) {
+            "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
+        } else {
+            "AUTO_RESTORE_PROTOCOL: Restored Viewport Canvas to 1.0x (1080p Native) • Global DPI Untouched"
+        }
+    }
+
+    fun toggleAutoRestoreOnMinimize(enabled: Boolean) {
+        engine.setAutoRestoreOnMinimizeEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "AUTO_RESTORE_PROTOCOL ON: Instant 1.0x (1080p) restore on Minimize / Home Button"
+        } else {
+            "AUTO_RESTORE_PROTOCOL OFF: Continuous 0.5x scale lock"
         }
     }
 
     fun toggleRenderScaleSpoof(enabled: Boolean) {
         engine.setRenderScaleSpoofEnabled(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "FORCE_RENDER_SCALE_SPOOF: 0.7x Shader Resolution (-30%) -> 1080p Display Spoof ACTIVE"
+            "DYNAMIC_CANVAS_DOWNSCALE: 0.5x App-Only Viewport (540x1200) ACTIVE • Global DPI Untouched"
         } else {
-            "Render Scale restored to 1.0x native shader resolution"
+            "Viewport Canvas restored to 1.0x (1080p native) resolution"
         }
     }
 
     fun toggleVSyncDisableEglSwapZero(enabled: Boolean) {
         engine.setVSyncDisableEglSwapZero(enabled)
         _uiBannerMessage.value = if (enabled) {
-            "V_SYNC_DISABLE: Forced eglSwapInterval(0) — UNLOCKED_MAXIMUM_PHYSICAL_LIMIT"
+            "V_SYNC_BYPASS: Forced eglSwapInterval(0) for target surface — Zero frame capping"
         } else {
             "V-Sync restored to standard eglSwapInterval(1)"
         }
@@ -207,12 +228,12 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 appContext.startActivity(launchIntent)
-                _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100% | Launching com.volumeshader!"
+                _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED | Launching com.volumeshader!"
             } else {
-                _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100% (0.7x Mandelbulb 3D Active)"
+                _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
             }
         } catch (_: Throwable) {
-            _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
+            _uiBannerMessage.value = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED"
         }
     }
 

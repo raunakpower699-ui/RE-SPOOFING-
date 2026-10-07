@@ -117,7 +117,16 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         val engine = AndroidPerformanceEngine.getInstance(applicationContext)
         engine.setAppForegroundState(true)
+        engine.setTargetWindowHookActive(true, "Foreground Target Window Active")
         engine.refreshStaticAndDynamicTelemetry()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        val engine = AndroidPerformanceEngine.getInstance(applicationContext)
+        if (engine.telemetryState.value.autoRestoreOnMinimizeEnabled) {
+            engine.setTargetWindowHookActive(false, "Home Button / App Minimized")
+        }
     }
 
     override fun onStop() {
@@ -484,6 +493,8 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                                 onOpenLogoPicker = openCustomLogoPicker,
                                 onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
                                 onToggleOriginOs6Overdrive = { viewModel.toggleOriginOs6Overdrive(it) },
+                                onToggleTargetWindowHookState = { viewModel.toggleTargetWindowHookState(it) },
+                                onToggleAutoRestoreOnMinimize = { viewModel.toggleAutoRestoreOnMinimize(it) },
                                 onToggleRenderScaleSpoof = { viewModel.toggleRenderScaleSpoof(it) },
                                 onToggleVSyncDisableSwapZero = { viewModel.toggleVSyncDisableEglSwapZero(it) },
                                 onLaunchVolumeShaderPipeline = { viewModel.launchVolumeShaderBenchmarkPipeline() },

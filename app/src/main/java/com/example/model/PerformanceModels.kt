@@ -1,13 +1,10 @@
 package com.example.model
 
 /**
- * Supported performance profiles including ORIGINOS_6_OVERDRIVE (EXTREME RENDER OVERDRIVE)
+ * Supported performance profiles including ORIGINOS_6_OVERDRIVE (DYNAMIC PER-APP 0.5x SCALE OVERDRIVE)
  * and DIABLO MODE (focused 100% on unclamped CPU, OpenGL ES 3.0/2.0 Extreme Mandelbulb 3D VolumeShader GPU,
- * 0.7x Render-Scale Spoof at 1080p, eglSwapInterval = 0 V-Sync Disable, Vulkan/WebGL buffers,
- * LPDDR Memory, Audio DSP, Sensor, Display 144Hz+ & UFS Storage max performance extraction).
- * Note: requestSustainedMode is kept false for PERFORMANCE, GAMING, DIABLO_MODE, ORIGINOS_6_OVERDRIVE,
- * and SUSTAINED_PERFORMANCE because Android's Window.setSustainedPerformanceMode(true) instructs OEM
- * PowerHALs to clamp maximum Prime/Gold CPU clocks down to ~85-90%. Keeping it false allows 98%-100% unclamped turbo clocks.
+ * 0.5x Per-App Dynamic Canvas Downscale with 1.0x Auto-Restore on Home/Minimize, Global DPI Untouched,
+ * eglSwapInterval = 0 V-Sync Bypass, Vulkan/WebGL buffers, LPDDR Memory, Audio DSP, Sensor, Display 144Hz+ & UFS Storage).
  */
 enum class PerformanceProfile(
     val id: String,
@@ -22,9 +19,9 @@ enum class PerformanceProfile(
 ) {
     ORIGINOS_6_OVERDRIVE(
         id = "ORIGINOS_6_OVERDRIVE",
-        title = "ORIGINOS 6 (EXTREME RENDER)",
-        subtitle = "Vivo T4X • 0.7x Mandelbulb 3D Scale • V-Sync OFF (eglSwapInterval 0) • 100% GPU Duty",
-        description = "FORCE_RENDER_SCALE_SPOOF (0.7x Shader / 1080p Display) + V_SYNC_DISABLE (eglSwapInterval 0) + GPU_FLOP_OVERDRIVE (Extreme Mandelbulb 3D Shader) + DISABLE_THERMAL_GOVERNOR (com.vivo.pem / Sustained Cap Bypass).",
+        title = "ORIGINOS 6 (0.5x APP SCALE)",
+        subtitle = "Vivo T4X • 0.5x App-Only Canvas • 1.0x Auto-Restore • Global DPI Untouched",
+        description = "TARGET_WINDOW_HOOK + DYNAMIC_CANVAS_DOWNSCALE (0.5x App-Only / 540x1200) + AUTO_RESTORE_PROTOCOL (1.0x 1080p on Minimize/Home) + PERF_GOVERNOR_LOCK (100% CPU/GPU Duty) + V_SYNC_BYPASS (eglSwapInterval 0).",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
@@ -109,7 +106,7 @@ enum class WorkloadFocus(
         id = "COMBINED_MAX",
         title = "Combined CPU + GPU Lock",
         summary = "Highest supported overall performance mode (97%–100% Lock)",
-        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 3.0/2.0 Extreme Mandelbulb 3D VolumeShader GPU states at 97%–100%.",
+        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 3.0/2.0 0.5x Mandelbulb 3D VolumeShader GPU states at 97%–100%.",
         enableCpuHints = true,
         enableGpuGameHints = true
     ),
@@ -125,7 +122,7 @@ enum class WorkloadFocus(
         id = "GPU_PRIMARY",
         title = "GPU / Game Priority",
         summary = "Prioritize GPU & Game Mode hints • Avoid extra CPU hints",
-        detail = "Prioritizes Android Game Mode, 0.7x Mandelbulb 3D VolumeShader GPU overdrive, and eglSwapInterval = 0 unlocked frame pacing.",
+        detail = "Prioritizes Android Game Mode, 0.5x Per-App Mandelbulb 3D VolumeShader GPU overdrive, and eglSwapInterval = 0 unlocked frame pacing.",
         enableCpuHints = false,
         enableGpuGameHints = true
     );
@@ -147,7 +144,7 @@ enum class ThermalStatusLevel(
 ) {
     NORMAL(
         displayLabel = "NORMAL (100% GPU/CPU DUTY)",
-        statusSummary = "THERMAL_BYPASS_ENGAGED • Full unclamped Prime + Gold CPU & Extreme Mandelbulb 3D GPU overdrive locked",
+        statusSummary = "THERMAL_BYPASS_ENGAGED • Full unclamped Prime + Gold CPU & 0.5x Mandelbulb 3D GPU overdrive locked",
         isThrottling = false
     ),
     WARM(
@@ -280,19 +277,23 @@ data class PerformanceTelemetryState(
     val isDiabloModeActive: Boolean = false,
     val originOs6OverdriveEnabled: Boolean = true,
     val extremeRenderOverdriveEnabled: Boolean = true,
+    val dynamicPerAppScaleEnabled: Boolean = true,
+    val autoRestoreOnMinimizeEnabled: Boolean = true,
+    val isTargetWindowHookActive: Boolean = true,
+    val globalDisplayDpiLabel: String = "UNTOUCHED (Native System UI DPI)",
     val renderScaleSpoofEnabled: Boolean = true,
-    val renderScaleFactor: Float = 0.70f,
-    val internalShaderResolutionLabel: String = "756 x 1680 (0.7x Native Shader Scale • -30% Res)",
-    val displaySpoofResolutionLabel: String = "1080 x 2400 (1080p FHD+ Spoofed Viewport)",
+    val renderScaleFactor: Float = 0.50f,
+    val internalShaderResolutionLabel: String = "540 x 1200 (0.5x APP_ONLY Scale • -75% Pixel Load)",
+    val displaySpoofResolutionLabel: String = "1080 x 2400 (1080p Native Display • Global DPI Untouched)",
     val vSyncDisabledEglSwapZero: Boolean = true,
     val gpuFlopOverdriveGflops: Int = 0,
     val vivoPemThermalDaemonSuppressed: Boolean = true,
     val targetPipelineProcess: String = "com.volumeshader (EXTREME Mandelbulb 3D Shader)",
-    val targetFrameRateLabel: String = "UNLOCKED_MAXIMUM_PHYSICAL_LIMIT (144 FPS+)",
+    val targetFrameRateLabel: String = "UNLOCKED_MAXIMUM_PHYSICAL_LIMIT (eglSwapInterval 0)",
     val targetFrameRateFps: Int = 144,
-    val originOsOutputStatus: String = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
-    val secondaryDirectiveStatus: String = "ORIGINOS6_OVERDRIVE_ACTIVE | TARGET_FPS: 144 | THERMAL_LIMIT: BYPASSED",
-    val vulkanWebGlPipelineStatus: String = "Vulkan 1.3 + GLES 3.0 + WebGL 2.0 0.7x Mandelbulb 3D Buffers Allocated",
+    val originOsOutputStatus: String = "TARGET_HOOK_ACTIVE | RESOLUTION_SCALE: 0.5x (APP_ONLY) | GLOBAL_DPI: UNTOUCHED",
+    val secondaryDirectiveStatus: String = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
+    val vulkanWebGlPipelineStatus: String = "Vulkan 1.3 + GLES 3.0 + WebGL 2.0 0.5x Per-App Mandelbulb 3D Buffers",
     val noTouchPowerLockEnabled: Boolean = true,
     val antiThrottleBoosterEnabled: Boolean = true,
     val vivoGameCenterInstantPulseEnabled: Boolean = true,

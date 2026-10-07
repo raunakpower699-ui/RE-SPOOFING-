@@ -67,6 +67,8 @@ class RedMagicHardwareController(private val appContext: Context) {
     private val ufsStorageRunning = AtomicBoolean(false)
 
     val renderScaleSpoofEnabled = AtomicBoolean(true)
+    val targetWindowHookActive = AtomicBoolean(true)
+    val autoRestoreOnMinimizeEnabled = AtomicBoolean(true)
     val vSyncDisabledEglSwapZero = AtomicBoolean(true)
     val isEglSwapIntervalZeroActive = AtomicBoolean(true)
 
@@ -114,16 +116,29 @@ class RedMagicHardwareController(private val appContext: Context) {
     }
 
     fun getRenderScaleFactor(): Float {
-        return if (renderScaleSpoofEnabled.get()) 0.70f else 1.00f
+        if (autoRestoreOnMinimizeEnabled.get() && !targetWindowHookActive.get()) {
+            return 1.00f
+        }
+        return if (renderScaleSpoofEnabled.get()) 0.50f else 1.00f
     }
 
     fun getInternalShaderResolutionLabel(displayWidth: Int = 1080, displayHeight: Int = 2400): String {
-        return if (renderScaleSpoofEnabled.get()) {
-            val scaledW = (displayWidth * 0.70f).roundToInt()
-            val scaledH = (displayHeight * 0.70f).roundToInt()
-            "$scaledW x $scaledH (0.7x Native Shader Scale • -30% Res)"
+        val factor = getRenderScaleFactor()
+        return if (factor < 0.99f) {
+            val scaledW = (displayWidth * factor).roundToInt()
+            val scaledH = (displayHeight * factor).roundToInt()
+            "$scaledW x $scaledH (0.5x APP_ONLY Scale • -75% Pixel Load)"
         } else {
-            "$displayWidth x $displayHeight (1.0x Native Resolution)"
+            "$displayWidth x $displayHeight (1.0x 1080p Native Restored)"
+        }
+    }
+
+    fun getGlobalDisplayDpiLabel(): String {
+        return try {
+            val dpi = appContext.resources?.displayMetrics?.densityDpi ?: 440
+            "UNTOUCHED (${dpi} DPI Native System UI)"
+        } catch (_: Throwable) {
+            "UNTOUCHED (Native System UI DPI)"
         }
     }
 
@@ -154,9 +169,9 @@ class RedMagicHardwareController(private val appContext: Context) {
                 false
             }
             detectedVulkanWebGlSummary = if (hasVulkan) {
-                "Vulkan Hardware + GLES 3.0 + WebGL 2.0 (0.7x Mandelbulb 3D Scale -> 1080p | eglSwapInterval 0)"
+                "Vulkan Hardware + GLES 3.0 + WebGL 2.0 (0.5x App-Only -> 1.0x Auto-Restore | eglSwapInterval 0)"
             } else {
-                "OpenGL ES 3.0/2.0 + WebGL 2.0 (0.7x Mandelbulb 3D Scale -> 1080p | eglSwapInterval 0)"
+                "OpenGL ES 3.0/2.0 + WebGL 2.0 (0.5x App-Only -> 1.0x Auto-Restore | eglSwapInterval 0)"
             }
         } catch (_: Throwable) {
         }
@@ -534,12 +549,13 @@ class RedMagicHardwareController(private val appContext: Context) {
 
                 while (isActive && glEngineRunning.get()) {
                     val overdrive = currentExtremeOverdrive
-                    // DIRECTIVE 1: FORCE_RENDER_SCALE_SPOOF (0.7x native shader scaling)
-                    val scaleFactor = if (renderScaleSpoofEnabled.get()) 0.70f else 1.00f
-                    val scaledViewportDim = (baseSurfaceDim * scaleFactor).roundToInt().coerceIn(32, baseSurfaceDim)
+                    // DIRECTIVE 1, 2 & 3: TARGET_WINDOW_HOOK + DYNAMIC_CANVAS_DOWNSCALE (0.5x) + AUTO_RESTORE_PROTOCOL (1.0x)
+                    val scaleFactor = getRenderScaleFactor()
+                    val scaledViewportDim = (baseSurfaceDim * scaleFactor).roundToInt().coerceIn(24, baseSurfaceDim)
 
                     if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                        val desiredInterval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
+                        val hookActive = targetWindowHookActive.get() || !autoRestoreOnMinimizeEnabled.get()
+                        val desiredInterval = if (vSyncDisabledEglSwapZero.get() && hookActive) 0 else 1
                         EGL14.eglSwapInterval(eglDisplay, desiredInterval)
                         isEglSwapIntervalZeroActive.set(desiredInterval == 0)
                     }

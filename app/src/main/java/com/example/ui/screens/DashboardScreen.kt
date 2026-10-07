@@ -118,6 +118,8 @@ fun DashboardScreen(
     onOpenLogoPicker: () -> Unit,
     onToggleVivoIqooSimulation: (Boolean) -> Unit,
     onToggleOriginOs6Overdrive: (Boolean) -> Unit = {},
+    onToggleTargetWindowHookState: (Boolean) -> Unit = {},
+    onToggleAutoRestoreOnMinimize: (Boolean) -> Unit = {},
     onToggleRenderScaleSpoof: (Boolean) -> Unit = {},
     onToggleVSyncDisableSwapZero: (Boolean) -> Unit = {},
     onLaunchVolumeShaderPipeline: () -> Unit = {},
@@ -172,11 +174,13 @@ fun DashboardScreen(
             )
         }
 
-        // 5. [SYSTEM DIRECTIVE: RE_SPOOFING_EXTREME_RENDER_OVERDRIVE] (Vivo T4X 0.7x Mandelbulb 3D & V-Sync Disable)
+        // 5. [SYSTEM DIRECTIVE: DYNAMIC_PER_APP_SCALE_OVERDRIVE] (0.5x App-Only Scale & 1.0x Auto-Restore)
         item {
             OriginOs6OverdriveDirectiveCard(
                 state = state,
                 onToggleOriginOs6Overdrive = onToggleOriginOs6Overdrive,
+                onToggleTargetWindowHookState = onToggleTargetWindowHookState,
+                onToggleAutoRestoreOnMinimize = onToggleAutoRestoreOnMinimize,
                 onToggleRenderScaleSpoof = onToggleRenderScaleSpoof,
                 onToggleVSyncDisableSwapZero = onToggleVSyncDisableSwapZero,
                 onLaunchVolumeShaderPipeline = onLaunchVolumeShaderPipeline
@@ -816,16 +820,19 @@ private fun BoosterToggleRow(
 private fun OriginOs6OverdriveDirectiveCard(
     state: PerformanceTelemetryState,
     onToggleOriginOs6Overdrive: (Boolean) -> Unit,
+    onToggleTargetWindowHookState: (Boolean) -> Unit,
+    onToggleAutoRestoreOnMinimize: (Boolean) -> Unit,
     onToggleRenderScaleSpoof: (Boolean) -> Unit,
     onToggleVSyncDisableSwapZero: (Boolean) -> Unit,
     onLaunchVolumeShaderPipeline: () -> Unit
 ) {
     val isOriginActive = state.originOs6OverdriveEnabled
+    val isHookActive = state.isTargetWindowHookActive
     val borderBrush = Brush.linearGradient(
-        colors = if (isOriginActive) {
+        colors = if (isOriginActive && isHookActive) {
             listOf(TelemetryGreen, ElectricCyan, Color(0xFFFFB300))
         } else {
-            listOf(CarbonBorder, ElectricCyan.copy(alpha = 0.5f))
+            listOf(Color(0xFFFFB300), ElectricCyan.copy(alpha = 0.7f))
         }
     )
     val cpuDuty = if (state.isSessionActive) state.lockedPowerPercent.coerceIn(98, 100) else 100
@@ -852,28 +859,28 @@ private fun OriginOs6OverdriveDirectiveCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.DeveloperBoard,
-                        contentDescription = "Extreme Render Overdrive",
+                        contentDescription = "Dynamic Per-App Scale Overdrive",
                         tint = TelemetryGreen,
                         modifier = Modifier.size(26.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "RE_SPOOFING_EXTREME_RENDER_OVERDRIVE",
+                            text = "DYNAMIC_PER_APP_SCALE_OVERDRIVE",
                             style = MaterialTheme.typography.titleMedium,
                             color = TelemetryGreen,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "OriginOS 6 (Vivo T4X) • GPU Pipeline & 0.7x Resolution Injector",
+                            text = "OriginOS 6 (Vivo T4X) • Isolated Native Surface Scaler & Kernel Governor",
                             style = MaterialTheme.typography.labelSmall,
                             color = ElectricCyan
                         )
                     }
                 }
                 StatusPillBadge(
-                    text = if (isOriginActive) "0.7X • 100% GPU" else "STANDBY",
-                    color = if (isOriginActive) TelemetryGreen else TextSecondary,
+                    text = if (isHookActive && state.renderScaleSpoofEnabled) "0.5x APP_ONLY" else "1.0x NATIVE",
+                    color = if (isHookActive && state.renderScaleSpoofEnabled) TelemetryGreen else Color(0xFFFFB300),
                     testTag = "originos6_fps_badge"
                 )
             }
@@ -904,7 +911,7 @@ private fun OriginOs6OverdriveDirectiveCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "WORKLOAD: ${state.targetPipelineProcess} • FPS: ${state.targetFrameRateLabel}",
+                        text = "TARGET: ${state.targetPipelineProcess} • GLOBAL DPI: ${state.globalDisplayDpiLabel}",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFFFB300)
                     )
@@ -914,42 +921,48 @@ private fun OriginOs6OverdriveDirectiveCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             DiabloTelemetryRow(
-                "1. FORCE_RENDER_SCALE_SPOOF",
-                if (state.renderScaleSpoofEnabled) {
-                    "0.7x Scale (756x1680 Shader -> 1080p Display)"
+                "1. TARGET_WINDOW_HOOK",
+                if (isHookActive) {
+                    "ACTIVE (App-Only • Global DPI Untouched)"
                 } else {
-                    "1.0x Native Resolution"
+                    "MINIMIZED / HOME (Global DPI Untouched)"
                 }
             )
             DiabloTelemetryRow(
-                "2. V_SYNC_DISABLE",
-                if (state.vSyncDisabledEglSwapZero) {
-                    "eglSwapInterval = 0 (Unlocked Physical Limit)"
+                "2. DYNAMIC_CANVAS_DOWNSCALE",
+                state.internalShaderResolutionLabel
+            )
+            DiabloTelemetryRow(
+                "3. AUTO_RESTORE_PROTOCOL",
+                if (!isHookActive && state.autoRestoreOnMinimizeEnabled) {
+                    "ENGAGED -> Restored 1.0x (1080p Native)"
+                } else if (state.autoRestoreOnMinimizeEnabled) {
+                    "ARMED (Instant 1.0x 1080p on Minimize/Home)"
                 } else {
-                    "eglSwapInterval = 1 (VSYNC Paced)"
+                    "Disabled"
                 }
             )
             DiabloTelemetryRow(
-                "3. GPU_FLOP_OVERDRIVE",
-                "GPU $gpuDuty% / CPU $cpuDuty% ($gflops GFLOP/s Mandelbulb 3D)"
-            )
-            DiabloTelemetryRow(
-                "4. DISABLE_THERMAL_GOVERNOR",
-                if (state.antiThrottleBoosterEnabled) {
-                    "THERMAL_BYPASS_ENGAGED (com.vivo.pem Off)"
+                "4. PERF_GOVERNOR_LOCK",
+                if (isHookActive) {
+                    "LOCKED: GPU $gpuDuty% / CPU $cpuDuty% ($gflops GFLOP/s)"
                 } else {
-                    "Standard"
+                    "STEPPED DOWN (Target Minimized)"
                 }
             )
             DiabloTelemetryRow(
-                "Vulkan / GLES3 / WebGL Buffers",
-                state.vulkanWebGlPipelineStatus
+                "5. V_SYNC_BYPASS",
+                if (state.vSyncDisabledEglSwapZero && isHookActive) {
+                    "eglSwapInterval = 0 (Zero Frame Cap)"
+                } else {
+                    "eglSwapInterval = 1 (Native VSYNC)"
+                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             AnimatedGlowButton(
-                text = "LAUNCH EXTREME MANDELBULB 3D PIPELINE",
+                text = "LAUNCH TARGET (0.5x MANDELBULB 3D PIPELINE)",
                 icon = Icons.Filled.PlayArrow,
                 onClick = onLaunchVolumeShaderPipeline,
                 enabled = true,
@@ -965,8 +978,22 @@ private fun OriginOs6OverdriveDirectiveCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             BoosterToggleRow(
-                title = "1. FORCE_RENDER_SCALE_SPOOF (0.7x Shader / 1080p Display)",
-                subtitle = "Downscales native OpenGL/Vulkan/WebGL Mandelbulb 3D shader resolution by 30% (0.7x scaling: ${state.internalShaderResolutionLabel}) while keeping display spoofed at 1080p",
+                title = "1. TARGET_WINDOW_HOOK (Foreground Target Window Active)",
+                subtitle = "ON = Target app in foreground (0.5x canvas scale + 100% CPU/GPU lock). OFF = Simulates Home Button / Minimize -> Immediately triggers 1.0x (1080p native) Auto-Restore. Global Display DPI is NEVER modified.",
+                checked = state.isTargetWindowHookActive,
+                onCheckedChange = onToggleTargetWindowHookState,
+                accentColor = TelemetryGreen,
+                testTag = "toggle_target_window_hook"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "2. DYNAMIC_CANVAS_DOWNSCALE (0.5x App-Only Viewport)",
+                subtitle = "Forces internal WebGL/Vulkan/OpenGL viewport canvas to 0.5x resolution scale (${state.internalShaderResolutionLabel}) during active target session",
                 checked = state.renderScaleSpoofEnabled,
                 onCheckedChange = onToggleRenderScaleSpoof,
                 accentColor = TelemetryGreen,
@@ -979,8 +1006,22 @@ private fun OriginOs6OverdriveDirectiveCard(
             )
 
             BoosterToggleRow(
-                title = "2. V_SYNC_DISABLE (Force eglSwapInterval = 0 • Unlocked FPS)",
-                subtitle = "Forces EGL14.eglSwapInterval(eglDisplay, 0) and disables display refresh throttlers & frame pacing limits for UNLOCKED_MAXIMUM_PHYSICAL_LIMIT",
+                title = "3. AUTO_RESTORE_PROTOCOL (1.0x Native on Minimize / Home)",
+                subtitle = "Immediately restores Viewport Canvas to 1.0x (1080p native) as soon as target app is minimized, closed, or Home Button is pressed",
+                checked = state.autoRestoreOnMinimizeEnabled,
+                onCheckedChange = onToggleAutoRestoreOnMinimize,
+                accentColor = Color(0xFFFFB300),
+                testTag = "toggle_auto_restore_on_minimize"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "5. V_SYNC_BYPASS (Force eglSwapInterval = 0 • Zero Stutter)",
+                subtitle = "Forces EGL14.eglSwapInterval(eglDisplay, 0) for target surface to eliminate frame-rate capping and stuttering",
                 checked = state.vSyncDisabledEglSwapZero,
                 onCheckedChange = onToggleVSyncDisableSwapZero,
                 accentColor = ElectricCyan,
@@ -993,8 +1034,8 @@ private fun OriginOs6OverdriveDirectiveCard(
             )
 
             BoosterToggleRow(
-                title = "OriginOS 6 (Vivo T4X) Extreme Render & 144Hz Overdrive Governor",
-                subtitle = "Locks 144Hz Display Driver, Power-8 3D Mandelbulb Shader (com.volumeshader), 100% GPU/CPU Duty Cycle, and com.vivo.pem Thermal Bypass",
+                title = "OriginOS 6 (Vivo T4X) Isolated Surface Scaler & Kernel Governor",
+                subtitle = "Master switch for TARGET_WINDOW_HOOK + 0.5x Dynamic Canvas + 1.0x Auto-Restore + 100% Governor Lock + V-Sync Bypass",
                 checked = state.originOs6OverdriveEnabled,
                 onCheckedChange = onToggleOriginOs6Overdrive,
                 accentColor = TelemetryGreen,
