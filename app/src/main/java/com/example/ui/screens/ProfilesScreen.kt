@@ -205,24 +205,29 @@ private fun ProfileOptionCard(
     isSelected: Boolean,
     onSelect: () -> Unit
 ) {
+    val isOriginOs = profile == PerformanceProfile.ORIGINOS_6_OVERDRIVE
     val isDiablo = profile == PerformanceProfile.DIABLO_MODE
     val borderColor = when {
+        isSelected && isOriginOs -> TelemetryGreen
         isSelected && isDiablo -> Color(0xFFFF1744)
         isSelected -> ElectricCyan
+        isOriginOs -> TelemetryGreen.copy(alpha = 0.6f)
         isDiablo -> Color(0xFFFF1744).copy(alpha = 0.55f)
         else -> CarbonBorder
     }
     val containerColor = when {
+        isSelected && isOriginOs -> Color(0xFF071D15)
         isSelected && isDiablo -> Color(0xFF1F080E)
         isSelected -> CarbonSurfaceElevated
         else -> CarbonSurface
     }
     val icon = when (profile) {
-        PerformanceProfile.BALANCED -> Icons.Filled.Speed
-        PerformanceProfile.PERFORMANCE -> Icons.Filled.Bolt
-        PerformanceProfile.GAMING -> Icons.Filled.SportsEsports
+        PerformanceProfile.ORIGINOS_6_OVERDRIVE -> Icons.Filled.DeveloperBoard
         PerformanceProfile.DIABLO_MODE -> Icons.Filled.LocalFireDepartment
+        PerformanceProfile.GAMING -> Icons.Filled.SportsEsports
+        PerformanceProfile.PERFORMANCE -> Icons.Filled.Bolt
         PerformanceProfile.SUSTAINED_PERFORMANCE -> Icons.Filled.ThermostatAuto
+        PerformanceProfile.BALANCED -> Icons.Filled.Speed
     }
 
     Card(
@@ -248,6 +253,7 @@ private fun ProfileOptionCard(
                         imageVector = icon,
                         contentDescription = profile.title,
                         tint = when {
+                            isOriginOs -> TelemetryGreen
                             isDiablo -> Color(0xFFFF1744)
                             isSelected -> ElectricCyan
                             else -> CobaltTurbo
@@ -263,20 +269,28 @@ private fun ProfileOptionCard(
                             Text(
                                 text = profile.title,
                                 style = MaterialTheme.typography.titleLarge,
-                                color = if (isDiablo) Color(0xFFFFB300) else TextPrimary,
+                                color = when {
+                                    isOriginOs -> TelemetryGreen
+                                    isDiablo -> Color(0xFFFFB300)
+                                    else -> TextPrimary
+                                },
                                 fontWeight = FontWeight.Bold
                             )
+                            if (isOriginOs) {
+                                StatusPillBadge(text = "VIVO T4X • 144 FPS", color = TelemetryGreen)
+                            }
                             if (profile == PerformanceProfile.PERFORMANCE) {
-                                StatusPillBadge(text = "DEFAULT", color = CobaltTurbo)
+                                StatusPillBadge(text = "MAX", color = CobaltTurbo)
                             }
                             if (isDiablo) {
-                                StatusPillBadge(text = "ROG EXTREME", color = Color(0xFFFF1744))
+                                StatusPillBadge(text = "DIABLO EXTREME", color = Color(0xFFFF1744))
                             }
                         }
                         Text(
                             text = profile.subtitle,
                             style = MaterialTheme.typography.labelMedium,
                             color = when {
+                                isOriginOs -> ElectricCyan
                                 isDiablo -> Color(0xFFFF1744)
                                 isSelected -> ElectricCyan
                                 else -> TextSecondary
@@ -288,6 +302,7 @@ private fun ProfileOptionCard(
                     imageVector = if (isSelected) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked,
                     contentDescription = if (isSelected) "Selected" else "Not selected",
                     tint = when {
+                        isSelected && isOriginOs -> TelemetryGreen
                         isSelected && isDiablo -> Color(0xFFFF1744)
                         isSelected -> ElectricCyan
                         else -> TextMuted

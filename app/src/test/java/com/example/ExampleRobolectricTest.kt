@@ -47,9 +47,39 @@ class ExampleRobolectricTest {
         assertFalse(engine.telemetryState.value.isSessionActive)
         assertEquals("LOCKED (VIVO/iQOO ONLY)", engine.telemetryState.value.cpuStatus.requestState)
 
-        // Unlock Vivo/iQOO verification and activate all max hardware subsystems
+        // Unlock Vivo/iQOO verification and activate all max hardware subsystems (OriginOS 6 Extreme Render Overdrive)
         engine.setVivoIqooEmulatorSimulation(true)
         engine.activateAllMaxHardwareSubsystems()
+        val startedOriginResult = engine.startPerformanceSession(
+            profile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
+            workloadFocus = WorkloadFocus.COMBINED_MAX
+        )
+        assertTrue(startedOriginResult)
+        val originState = engine.telemetryState.value
+        assertTrue(originState.isSessionActive)
+        assertTrue(originState.originOs6OverdriveEnabled)
+        assertTrue(originState.extremeRenderOverdriveEnabled)
+        assertTrue(originState.renderScaleSpoofEnabled)
+        assertEquals(0.70f, originState.renderScaleFactor, 0.001f)
+        assertTrue(originState.vSyncDisabledEglSwapZero)
+        assertTrue(originState.gpuFlopOverdriveGflops >= 1400)
+        assertTrue(originState.vivoPemThermalDaemonSuppressed)
+        assertEquals(144, originState.targetFrameRateFps)
+        assertEquals(64, originState.volumeShaderRayStepsPerFrame)
+        assertEquals(
+            "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
+            originState.originOsOutputStatus
+        )
+        assertEquals(
+            "ORIGINOS6_OVERDRIVE_ACTIVE | TARGET_FPS: 144 | THERMAL_LIMIT: BYPASSED",
+            originState.secondaryDirectiveStatus
+        )
+        assertTrue(originState.targetPipelineProcess.contains("com.volumeshader"))
+        assertTrue(originState.targetPipelineProcess.contains("Mandelbulb"))
+        assertEquals(1_400_000L, originState.cpuStatus.targetDurationNanos)
+        assertEquals("ACTIVE (ORIGINOS6 OVERDRIVE)", originState.cpuStatus.requestState)
+
+        // Also verify DIABLO_MODE profile
         val startedResult = engine.startPerformanceSession(
             profile = PerformanceProfile.DIABLO_MODE,
             workloadFocus = WorkloadFocus.COMBINED_MAX

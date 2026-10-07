@@ -117,6 +117,10 @@ fun DashboardScreen(
     onQuickProfileSelect: (PerformanceProfile) -> Unit,
     onOpenLogoPicker: () -> Unit,
     onToggleVivoIqooSimulation: (Boolean) -> Unit,
+    onToggleOriginOs6Overdrive: (Boolean) -> Unit = {},
+    onToggleRenderScaleSpoof: (Boolean) -> Unit = {},
+    onToggleVSyncDisableSwapZero: (Boolean) -> Unit = {},
+    onLaunchVolumeShaderPipeline: () -> Unit = {},
     onToggleNoTouchPowerLock: (Boolean) -> Unit = {},
     onToggleAntiThrottleBooster: (Boolean) -> Unit = {},
     onToggleVivoGameCenterPulse: (Boolean) -> Unit = {},
@@ -158,7 +162,7 @@ fun DashboardScreen(
             )
         }
 
-        // 4. Hero Performance Mode Control Deck (START / STOP + Status + Quick Diablo Mode)
+        // 4. Hero Performance Mode Control Deck (START / STOP + Status + Quick OriginOS 6 / Diablo Mode)
         item {
             PerformanceControlHeroCard(
                 state = state,
@@ -168,7 +172,18 @@ fun DashboardScreen(
             )
         }
 
-        // 5. 97%–100% Constant CPU, OpenGL ES 2.0 GPU, LPDDR5X, Audio DSP, Sensor & UFS Max Lock Card
+        // 5. [SYSTEM DIRECTIVE: RE_SPOOFING_EXTREME_RENDER_OVERDRIVE] (Vivo T4X 0.7x Mandelbulb 3D & V-Sync Disable)
+        item {
+            OriginOs6OverdriveDirectiveCard(
+                state = state,
+                onToggleOriginOs6Overdrive = onToggleOriginOs6Overdrive,
+                onToggleRenderScaleSpoof = onToggleRenderScaleSpoof,
+                onToggleVSyncDisableSwapZero = onToggleVSyncDisableSwapZero,
+                onLaunchVolumeShaderPipeline = onLaunchVolumeShaderPipeline
+            )
+        }
+
+        // 6. 97%–100% Constant CPU, OpenGL ES 3.0/2.0 GPU, LPDDR5X, Audio DSP, Sensor & UFS Max Lock Card
         item {
             ConstantPowerLockAndThermalBoosterCard(
                 state = state,
@@ -185,9 +200,12 @@ fun DashboardScreen(
             )
         }
 
-        // 6. DIABLO MODE Overdrive HUD Card (Only RedMagic/ROG feature kept per user request)
+        // 7. DIABLO MODE & ORIGINOS 6 Overdrive HUD Card
         item {
-            AnimatedVisibility(visible = state.selectedProfile == PerformanceProfile.DIABLO_MODE) {
+            AnimatedVisibility(
+                visible = state.selectedProfile == PerformanceProfile.DIABLO_MODE ||
+                    state.selectedProfile == PerformanceProfile.ORIGINOS_6_OVERDRIVE
+            ) {
                 DiabloModeOverdriveHudCard(state = state)
             }
         }
@@ -795,6 +813,198 @@ private fun BoosterToggleRow(
 }
 
 @Composable
+private fun OriginOs6OverdriveDirectiveCard(
+    state: PerformanceTelemetryState,
+    onToggleOriginOs6Overdrive: (Boolean) -> Unit,
+    onToggleRenderScaleSpoof: (Boolean) -> Unit,
+    onToggleVSyncDisableSwapZero: (Boolean) -> Unit,
+    onLaunchVolumeShaderPipeline: () -> Unit
+) {
+    val isOriginActive = state.originOs6OverdriveEnabled
+    val borderBrush = Brush.linearGradient(
+        colors = if (isOriginActive) {
+            listOf(TelemetryGreen, ElectricCyan, Color(0xFFFFB300))
+        } else {
+            listOf(CarbonBorder, ElectricCyan.copy(alpha = 0.5f))
+        }
+    )
+    val cpuDuty = if (state.isSessionActive) state.lockedPowerPercent.coerceIn(98, 100) else 100
+    val gpuDuty = if (state.isSessionActive) state.gpuLockedDutyPercent.coerceIn(98, 100) else 100
+    val gflops = if (state.isSessionActive) state.gpuFlopOverdriveGflops.coerceAtLeast(1420) else 1420
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.8.dp, borderBrush, RoundedCornerShape(18.dp))
+            .testTag("originos6_overdrive_card"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF071612))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DeveloperBoard,
+                        contentDescription = "Extreme Render Overdrive",
+                        tint = TelemetryGreen,
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "RE_SPOOFING_EXTREME_RENDER_OVERDRIVE",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TelemetryGreen,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "OriginOS 6 (Vivo T4X) • GPU Pipeline & 0.7x Resolution Injector",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElectricCyan
+                        )
+                    }
+                }
+                StatusPillBadge(
+                    text = if (isOriginActive) "0.7X • 100% GPU" else "STANDBY",
+                    color = if (isOriginActive) TelemetryGreen else TextSecondary,
+                    testTag = "originos6_fps_badge"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Output Status Terminal Banner
+            Surface(
+                color = ObsidianBg,
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, TelemetryGreen.copy(alpha = 0.65f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("originos6_output_status_badge")
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text(
+                        text = state.originOsOutputStatus,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TelemetryGreen,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = state.secondaryDirectiveStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ElectricCyan
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "WORKLOAD: ${state.targetPipelineProcess} • FPS: ${state.targetFrameRateLabel}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFFFB300)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            DiabloTelemetryRow(
+                "1. FORCE_RENDER_SCALE_SPOOF",
+                if (state.renderScaleSpoofEnabled) {
+                    "0.7x Scale (756x1680 Shader -> 1080p Display)"
+                } else {
+                    "1.0x Native Resolution"
+                }
+            )
+            DiabloTelemetryRow(
+                "2. V_SYNC_DISABLE",
+                if (state.vSyncDisabledEglSwapZero) {
+                    "eglSwapInterval = 0 (Unlocked Physical Limit)"
+                } else {
+                    "eglSwapInterval = 1 (VSYNC Paced)"
+                }
+            )
+            DiabloTelemetryRow(
+                "3. GPU_FLOP_OVERDRIVE",
+                "GPU $gpuDuty% / CPU $cpuDuty% ($gflops GFLOP/s Mandelbulb 3D)"
+            )
+            DiabloTelemetryRow(
+                "4. DISABLE_THERMAL_GOVERNOR",
+                if (state.antiThrottleBoosterEnabled) {
+                    "THERMAL_BYPASS_ENGAGED (com.vivo.pem Off)"
+                } else {
+                    "Standard"
+                }
+            )
+            DiabloTelemetryRow(
+                "Vulkan / GLES3 / WebGL Buffers",
+                state.vulkanWebGlPipelineStatus
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            AnimatedGlowButton(
+                text = "LAUNCH EXTREME MANDELBULB 3D PIPELINE",
+                icon = Icons.Filled.PlayArrow,
+                onClick = onLaunchVolumeShaderPipeline,
+                enabled = true,
+                baseColor = TelemetryGreen,
+                pressedGlowColor = ElectricCyan,
+                contentColor = ObsidianBg,
+                testTag = "launch_volumeshader_pipeline_button",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            BoosterToggleRow(
+                title = "1. FORCE_RENDER_SCALE_SPOOF (0.7x Shader / 1080p Display)",
+                subtitle = "Downscales native OpenGL/Vulkan/WebGL Mandelbulb 3D shader resolution by 30% (0.7x scaling: ${state.internalShaderResolutionLabel}) while keeping display spoofed at 1080p",
+                checked = state.renderScaleSpoofEnabled,
+                onCheckedChange = onToggleRenderScaleSpoof,
+                accentColor = TelemetryGreen,
+                testTag = "toggle_render_scale_spoof"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "2. V_SYNC_DISABLE (Force eglSwapInterval = 0 • Unlocked FPS)",
+                subtitle = "Forces EGL14.eglSwapInterval(eglDisplay, 0) and disables display refresh throttlers & frame pacing limits for UNLOCKED_MAXIMUM_PHYSICAL_LIMIT",
+                checked = state.vSyncDisabledEglSwapZero,
+                onCheckedChange = onToggleVSyncDisableSwapZero,
+                accentColor = ElectricCyan,
+                testTag = "toggle_vsync_disable_swap_zero"
+            )
+
+            HorizontalDivider(
+                color = CarbonBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            BoosterToggleRow(
+                title = "OriginOS 6 (Vivo T4X) Extreme Render & 144Hz Overdrive Governor",
+                subtitle = "Locks 144Hz Display Driver, Power-8 3D Mandelbulb Shader (com.volumeshader), 100% GPU/CPU Duty Cycle, and com.vivo.pem Thermal Bypass",
+                checked = state.originOs6OverdriveEnabled,
+                onCheckedChange = onToggleOriginOs6Overdrive,
+                accentColor = TelemetryGreen,
+                testTag = "toggle_originos6_overdrive"
+            )
+        }
+    }
+}
+
+@Composable
 private fun DiabloModeOverdriveHudCard(state: PerformanceTelemetryState) {
     val diabloBrush = Brush.linearGradient(
         colors = listOf(Color(0xFFFF1744), Color(0xFFFFB300))
@@ -1078,12 +1288,15 @@ private fun PerformanceControlHeroCard(
     onQuickProfileSelect: (PerformanceProfile) -> Unit
 ) {
     val isVivoIqooVerified = state.compatibility.isVivoOrIqoo
-    val isDiabloSelected = state.selectedProfile == PerformanceProfile.DIABLO_MODE
+    val isOriginSelected = state.selectedProfile == PerformanceProfile.ORIGINOS_6_OVERDRIVE
+    val isDiabloSelected = state.selectedProfile == PerformanceProfile.DIABLO_MODE || isOriginSelected
     val activeBorderColor by animateColorAsState(
         targetValue = when {
+            state.isSessionActive && isOriginSelected -> TelemetryGreen
             state.isSessionActive && isDiabloSelected -> Color(0xFFFF1744)
             state.isSessionActive -> ElectricCyan
             !isVivoIqooVerified -> TelemetryRed.copy(alpha = 0.7f)
+            isOriginSelected -> TelemetryGreen
             isDiabloSelected -> Color(0xFFFFB300)
             else -> CarbonBorder
         },
@@ -1151,13 +1364,19 @@ private fun PerformanceControlHeroCard(
                     val gpuPct = state.gpuLockedDutyPercent.coerceIn(97, 100)
                     Text(
                         text = when {
+                            state.isSessionActive && isOriginSelected -> "ORIGINOS 6 — 144 FPS ($lockedPct% / $gpuPct%)"
                             state.isSessionActive && isDiabloSelected -> "DIABLO — CPU $lockedPct% / GPU $gpuPct%"
                             state.isSessionActive -> "LOCKED — CPU $lockedPct% / GPU $gpuPct%"
+                            isOriginSelected -> "ORIGINOS 6 • 144 FPS READY"
                             isDiabloSelected -> "DIABLO MODE READY"
                             else -> stringResource(id = R.string.main_purpose)
                         },
                         style = MaterialTheme.typography.headlineLarge,
-                        color = if (isDiabloSelected) Color(0xFFFFB300) else TextPrimary,
+                        color = when {
+                            isOriginSelected -> TelemetryGreen
+                            isDiabloSelected -> Color(0xFFFFB300)
+                            else -> TextPrimary
+                        },
                         fontWeight = FontWeight.Bold
                     )
 

@@ -348,7 +348,7 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "By Raunak Exploits • Diablo 97%–100% Lock",
+                                        text = "OriginOS 6 (Vivo T4X) • 144 FPS • Diablo Lock",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color(0xFFFFB300)
                                     )
@@ -358,14 +358,15 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                         actions = {
                             StatusPillBadge(
                                 text = when {
+                                    telemetryState.isSessionActive && telemetryState.originOs6OverdriveEnabled -> "144 FPS • ${telemetryState.lockedPowerPercent.coerceIn(98, 100)}%"
                                     telemetryState.isSessionActive -> "${telemetryState.lockedPowerPercent.coerceIn(97, 100)}% LOCKED"
                                     !telemetryState.compatibility.isVivoOrIqoo -> "VIVO LOCK"
-                                    else -> "STANDBY"
+                                    else -> "144 FPS ARMED"
                                 },
                                 color = when {
                                     telemetryState.isSessionActive -> TelemetryGreen
                                     !telemetryState.compatibility.isVivoOrIqoo -> TelemetryRed
-                                    else -> TextSecondary
+                                    else -> ElectricCyan
                                 },
                                 testTag = "top_bar_status_pill"
                             )
@@ -482,6 +483,10 @@ fun ReSpoofingApp(viewModel: PerformanceViewModel) {
                                 onQuickProfileSelect = { viewModel.selectProfile(it) },
                                 onOpenLogoPicker = openCustomLogoPicker,
                                 onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
+                                onToggleOriginOs6Overdrive = { viewModel.toggleOriginOs6Overdrive(it) },
+                                onToggleRenderScaleSpoof = { viewModel.toggleRenderScaleSpoof(it) },
+                                onToggleVSyncDisableSwapZero = { viewModel.toggleVSyncDisableEglSwapZero(it) },
+                                onLaunchVolumeShaderPipeline = { viewModel.launchVolumeShaderBenchmarkPipeline() },
                                 onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
                                 onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
                                 onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },

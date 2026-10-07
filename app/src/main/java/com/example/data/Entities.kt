@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 data class AssociatedGameEntity(
     @PrimaryKey val packageName: String,
     val appName: String,
-    val profileId: String = "DIABLO_MODE",
+    val profileId: String = "ORIGINOS_6_OVERDRIVE",
     val workloadFocusId: String = "COMBINED_MAX",
     val autoActivateOnLaunch: Boolean = true,
     val addedTimestamp: Long = System.currentTimeMillis(),
@@ -30,7 +30,7 @@ data class SessionHistoryEntity(
 @Entity(tableName = "user_preferences")
 data class UserPreferencesEntity(
     @PrimaryKey val id: Int = 1,
-    val selectedProfileId: String = "DIABLO_MODE",
+    val selectedProfileId: String = "ORIGINOS_6_OVERDRIVE",
     val selectedWorkloadFocusId: String = "COMBINED_MAX",
     val customLogoUri: String? = null,
     val customIntroVideoUri: String? = null,

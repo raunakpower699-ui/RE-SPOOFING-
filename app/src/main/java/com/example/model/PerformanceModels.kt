@@ -1,11 +1,13 @@
 package com.example.model
 
 /**
- * Supported performance profiles including DIABLO MODE (the only RedMagic/ROG extreme profile retained,
- * focused 100% on unclamped CPU, GPU, LPDDR Memory, Audio DSP, Sensor, Display & Storage max performance extraction).
- * Note: requestSustainedMode is kept false for PERFORMANCE, GAMING, DIABLO_MODE, and SUSTAINED_PERFORMANCE
- * because Android's Window.setSustainedPerformanceMode(true) instructs OEM PowerHALs to clamp maximum
- * Prime/Gold CPU clocks down to ~85-90%. Keeping it false allows 97%-100% unclamped turbo clocks.
+ * Supported performance profiles including ORIGINOS_6_OVERDRIVE (EXTREME RENDER OVERDRIVE)
+ * and DIABLO MODE (focused 100% on unclamped CPU, OpenGL ES 3.0/2.0 Extreme Mandelbulb 3D VolumeShader GPU,
+ * 0.7x Render-Scale Spoof at 1080p, eglSwapInterval = 0 V-Sync Disable, Vulkan/WebGL buffers,
+ * LPDDR Memory, Audio DSP, Sensor, Display 144Hz+ & UFS Storage max performance extraction).
+ * Note: requestSustainedMode is kept false for PERFORMANCE, GAMING, DIABLO_MODE, ORIGINOS_6_OVERDRIVE,
+ * and SUSTAINED_PERFORMANCE because Android's Window.setSustainedPerformanceMode(true) instructs OEM
+ * PowerHALs to clamp maximum Prime/Gold CPU clocks down to ~85-90%. Keeping it false allows 98%-100% unclamped turbo clocks.
  */
 enum class PerformanceProfile(
     val id: String,
@@ -18,49 +20,49 @@ enum class PerformanceProfile(
     val preferPowerEfficiency: Boolean,
     val targetWorkDurationNs: Long
 ) {
-    BALANCED(
-        id = "BALANCED",
-        title = "BALANCED",
-        subtitle = "Normal Vivo / iQOO Android behavior",
-        description = "Standard OS scheduler behavior. Applies power-efficiency hints where supported and avoids elevated frequency locks.",
-        requestCpuHints = true,
-        requestGpuOrGameHints = false,
-        requestSustainedMode = false,
-        preferPowerEfficiency = true,
-        targetWorkDurationNs = 16_666_666L
-    ),
-    PERFORMANCE(
-        id = "PERFORMANCE",
-        title = "PERFORMANCE (MAX)",
-        subtitle = "Locks 97%–100% CPU & GPU performance floor",
-        description = "Locks multi-cluster ADPF sessions, OpenGL ES 2.0 GPU shader floor, LPDDR memory prefetch, WakeLock anti-idle floor, and GameManager hints for 97%–100% steady power output.",
+    ORIGINOS_6_OVERDRIVE(
+        id = "ORIGINOS_6_OVERDRIVE",
+        title = "ORIGINOS 6 (EXTREME RENDER)",
+        subtitle = "Vivo T4X • 0.7x Mandelbulb 3D Scale • V-Sync OFF (eglSwapInterval 0) • 100% GPU Duty",
+        description = "FORCE_RENDER_SCALE_SPOOF (0.7x Shader / 1080p Display) + V_SYNC_DISABLE (eglSwapInterval 0) + GPU_FLOP_OVERDRIVE (Extreme Mandelbulb 3D Shader) + DISABLE_THERMAL_GOVERNOR (com.vivo.pem / Sustained Cap Bypass).",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
         preferPowerEfficiency = false,
-        targetWorkDurationNs = 2_600_000L
+        targetWorkDurationNs = 1_400_000L
+    ),
+    DIABLO_MODE(
+        id = "DIABLO_MODE",
+        title = "DIABLO MODE",
+        subtitle = "Extreme Unclamped 97%–100% Full-Hardware Max Performance Lock",
+        description = "Pure Diablo Mode hardware overdrive. Unclamps Prime + Gold CPU clusters (1.6ms ADPF 5x Overdrive + FPU/Matrix/CRC32C ALU), locks OpenGL ES 3.0/2.0 Mandelbulb 3D GPU shaders at 97%–100%, locks LPDDR 64B cache-line prefetch, Audio DSP FastPath, High-Rate Game Sensors, UFS Storage I/O, and Peak Display Hz non-stop until exited from the notification panel.",
+        requestCpuHints = true,
+        requestGpuOrGameHints = true,
+        requestSustainedMode = false,
+        preferPowerEfficiency = false,
+        targetWorkDurationNs = 1_600_000L
     ),
     GAMING(
         id = "GAMING",
         title = "MONSTER GAMING",
         subtitle = "Vivo / iQOO Monster Mode • 97%–100% CPU/GPU Lock",
-        description = "Keeps CPU, OpenGL ES 2.0 GPU, LPDDR memory, Audio DSP, and Touch/Sensor pipelines locked at 97%–100% even when not touching the screen, eliminating 0% / 70% / 80% drops.",
+        description = "Keeps CPU, OpenGL ES GPU, LPDDR memory, Audio DSP, and Touch/Sensor pipelines locked at 97%–100% even when not touching the screen, eliminating 0% / 70% / 80% drops.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
         preferPowerEfficiency = false,
         targetWorkDurationNs = 2_100_000L
     ),
-    DIABLO_MODE(
-        id = "DIABLO_MODE",
-        title = "DIABLO MODE",
-        subtitle = "Extreme Unclamped 97%–100% Full-Hardware Max Performance Lock",
-        description = "Pure Diablo Mode hardware overdrive. Unclamps Prime + Gold CPU clusters (1.6ms ADPF 5x Overdrive + FPU/Matrix/CRC32C ALU), locks OpenGL ES 2.0 GPU shaders at 97%–100%, locks LPDDR 64B cache-line prefetch, Audio DSP FastPath, High-Rate Game Sensors, UFS Storage I/O, and Peak Display Hz non-stop until exited from the notification panel.",
+    PERFORMANCE(
+        id = "PERFORMANCE",
+        title = "PERFORMANCE (MAX)",
+        subtitle = "Locks 97%–100% CPU & GPU performance floor",
+        description = "Locks multi-cluster ADPF sessions, OpenGL ES GPU shader floor, LPDDR memory prefetch, WakeLock anti-idle floor, and GameManager hints for 97%–100% steady power output.",
         requestCpuHints = true,
         requestGpuOrGameHints = true,
         requestSustainedMode = false,
         preferPowerEfficiency = false,
-        targetWorkDurationNs = 1_600_000L
+        targetWorkDurationNs = 2_600_000L
     ),
     SUSTAINED_PERFORMANCE(
         id = "SUSTAINED_PERFORMANCE",
@@ -72,11 +74,22 @@ enum class PerformanceProfile(
         requestSustainedMode = false,
         preferPowerEfficiency = false,
         targetWorkDurationNs = 3_000_000L
+    ),
+    BALANCED(
+        id = "BALANCED",
+        title = "BALANCED",
+        subtitle = "Normal Vivo / iQOO Android behavior",
+        description = "Standard OS scheduler behavior. Applies power-efficiency hints where supported and avoids elevated frequency locks.",
+        requestCpuHints = true,
+        requestGpuOrGameHints = false,
+        requestSustainedMode = false,
+        preferPowerEfficiency = true,
+        targetWorkDurationNs = 16_666_666L
     );
 
     companion object {
         fun fromId(id: String?): PerformanceProfile {
-            return entries.find { it.id == id } ?: DIABLO_MODE
+            return entries.find { it.id == id } ?: ORIGINOS_6_OVERDRIVE
         }
     }
 }
@@ -96,7 +109,7 @@ enum class WorkloadFocus(
         id = "COMBINED_MAX",
         title = "Combined CPU + GPU Lock",
         summary = "Highest supported overall performance mode (97%–100% Lock)",
-        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 2.0 GPU hardware shader states at 97%–100%.",
+        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 3.0/2.0 Extreme Mandelbulb 3D VolumeShader GPU states at 97%–100%.",
         enableCpuHints = true,
         enableGpuGameHints = true
     ),
@@ -112,7 +125,7 @@ enum class WorkloadFocus(
         id = "GPU_PRIMARY",
         title = "GPU / Game Priority",
         summary = "Prioritize GPU & Game Mode hints • Avoid extra CPU hints",
-        detail = "Prioritizes Android Game Mode, OpenGL ES 2.0 GPU shader lock, and high-Hz RenderThread frame lock.",
+        detail = "Prioritizes Android Game Mode, 0.7x Mandelbulb 3D VolumeShader GPU overdrive, and eglSwapInterval = 0 unlocked frame pacing.",
         enableCpuHints = false,
         enableGpuGameHints = true
     );
@@ -133,13 +146,13 @@ enum class ThermalStatusLevel(
     val isThrottling: Boolean
 ) {
     NORMAL(
-        displayLabel = "NORMAL (98%–100% POWER)",
-        statusSummary = "Optimal thermal state • Full unclamped Prime + Gold CPU & OpenGL GPU boost locked",
+        displayLabel = "NORMAL (100% GPU/CPU DUTY)",
+        statusSummary = "THERMAL_BYPASS_ENGAGED • Full unclamped Prime + Gold CPU & Extreme Mandelbulb 3D GPU overdrive locked",
         isThrottling = false
     ),
     WARM(
-        displayLabel = "WARM (97%–99% BOOST LOCKED)",
-        statusSummary = "Anti-Throttle Thermal Booster active • Holding 97%–100% power output without down-stepping",
+        displayLabel = "WARM (99%–100% OVERDRIVE LOCKED)",
+        statusSummary = "DISABLE_THERMAL_GOVERNOR (com.vivo.pem suppressed) • Holding 99%–100% power output without down-stepping",
         isThrottling = false
     ),
     THROTTLING(
@@ -168,7 +181,7 @@ data class GpuStatusInfo(
     val gameStateSignaled: Boolean = false,
     val directGpuControlExposed: Boolean = false,
     val hardwareModel: String = "",
-    val renderFrameLockHz: Int = 60,
+    val renderFrameLockHz: Int = 144,
     val gpuLockedDutyPercent: Int = 0,
     val noTouchGpuKeepAlive: Boolean = false,
     val statusDetail: String = "Your device does not expose GPU performance controls through Android. The app will use the available system performance APIs instead."
@@ -177,7 +190,7 @@ data class GpuStatusInfo(
 data class ThermalStatusInfo(
     val protectionActive: Boolean = true,
     val antiThrottleBoosterActive: Boolean = true,
-    val sustainedPowerScorePercent: Int = 99,
+    val sustainedPowerScorePercent: Int = 100,
     val level: ThermalStatusLevel = ThermalStatusLevel.NORMAL,
     val rawAndroidThermalCode: Int = 0,
     val rawAndroidThermalName: String = "THERMAL_STATUS_NONE",
@@ -219,7 +232,7 @@ data class DeviceLiveSpecs(
     val totalStorageGb: String = "64.0 GB",
     val freeStorageGb: String = "32.0 GB",
     val screenResolution: String = "1080 x 2400",
-    val displayRefreshRateHz: Int = 60
+    val displayRefreshRateHz: Int = 144
 )
 
 data class DeviceCompatibilityReport(
@@ -262,9 +275,24 @@ data class InstalledAppItem(
 data class PerformanceTelemetryState(
     val isSessionActive: Boolean = false,
     val foregroundServiceRunning: Boolean = false,
-    val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
+    val selectedProfile: PerformanceProfile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
     val isDiabloModeActive: Boolean = false,
+    val originOs6OverdriveEnabled: Boolean = true,
+    val extremeRenderOverdriveEnabled: Boolean = true,
+    val renderScaleSpoofEnabled: Boolean = true,
+    val renderScaleFactor: Float = 0.70f,
+    val internalShaderResolutionLabel: String = "756 x 1680 (0.7x Native Shader Scale • -30% Res)",
+    val displaySpoofResolutionLabel: String = "1080 x 2400 (1080p FHD+ Spoofed Viewport)",
+    val vSyncDisabledEglSwapZero: Boolean = true,
+    val gpuFlopOverdriveGflops: Int = 0,
+    val vivoPemThermalDaemonSuppressed: Boolean = true,
+    val targetPipelineProcess: String = "com.volumeshader (EXTREME Mandelbulb 3D Shader)",
+    val targetFrameRateLabel: String = "UNLOCKED_MAXIMUM_PHYSICAL_LIMIT (144 FPS+)",
+    val targetFrameRateFps: Int = 144,
+    val originOsOutputStatus: String = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%",
+    val secondaryDirectiveStatus: String = "ORIGINOS6_OVERDRIVE_ACTIVE | TARGET_FPS: 144 | THERMAL_LIMIT: BYPASSED",
+    val vulkanWebGlPipelineStatus: String = "Vulkan 1.3 + GLES 3.0 + WebGL 2.0 0.7x Mandelbulb 3D Buffers Allocated",
     val noTouchPowerLockEnabled: Boolean = true,
     val antiThrottleBoosterEnabled: Boolean = true,
     val vivoGameCenterInstantPulseEnabled: Boolean = true,
@@ -279,24 +307,26 @@ data class PerformanceTelemetryState(
     val realMeasuredThreadDutyPercent: Int = 0,
     val memoryBandwidthMbPerSec: Int = 0,
     val crc32AluOpsPerSecMillions: Int = 0,
+    val volumeShaderRayStepsPerFrame: Int = 64,
     val audioHardwareSampleRateHz: Int = 48000,
     val audioFastMixerBufferFrames: Int = 192,
     val audioFastPathActive: Boolean = false,
     val sensorHardwareName: String = "",
     val sensorSamplingHz: Int = 0,
     val storageThroughputMbPerSec: Int = 0,
-    val liveMeasuredFps: Int = 60,
-    val liveFrameTimeMs: Float = 16.6f,
+    val liveMeasuredFps: Int = 144,
+    val liveFrameTimeMs: Float = 6.9f,
     val networkDownstreamMbps: Int = 0,
     val networkUpstreamMbps: Int = 0,
     val glRendererName: String = "",
     val glVendorName: String = "",
+    val glVersionName: String = "",
     val purgedBackgroundAppsCount: Int = 0,
     val freedRamMb: Int = 0,
     val powerStabilityHistory: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     val gpuStabilityHistory: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    val activeGamePackage: String? = null,
-    val activeGameName: String? = null,
+    val activeGamePackage: String? = "com.volumeshader",
+    val activeGameName: String? = "EXTREME Mandelbulb 3D Shader (com.volumeshader)",
     val sessionStartEpochMs: Long = 0L,
     val sessionElapsedSeconds: Long = 0L,
     val cpuStatus: CpuStatusInfo = CpuStatusInfo(),

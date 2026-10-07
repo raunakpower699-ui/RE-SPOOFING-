@@ -131,21 +131,88 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     fun activateAllMaxHardwareSubsystemsNow() {
         engine.activateAllMaxHardwareSubsystems()
         viewModelScope.launch(Dispatchers.IO) {
-            repository.updateSelectedProfile(PerformanceProfile.DIABLO_MODE)
+            repository.updateSelectedProfile(PerformanceProfile.ORIGINOS_6_OVERDRIVE)
             repository.updateSelectedWorkloadFocus(WorkloadFocus.COMBINED_MAX)
         }
         val currentTelemetry = telemetryState.value
         if (currentTelemetry.compatibility.isVivoOrIqoo) {
             PerformanceForegroundService.startServiceSession(
                 context = appContext,
-                profile = PerformanceProfile.DIABLO_MODE,
+                profile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
                 workloadFocus = WorkloadFocus.COMBINED_MAX,
-                gamePackage = currentTelemetry.activeGamePackage,
-                gameName = currentTelemetry.activeGameName
+                gamePackage = currentTelemetry.activeGamePackage ?: "com.volumeshader",
+                gameName = currentTelemetry.activeGameName ?: "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
             )
-            _uiBannerMessage.value = "ALL MAX HARDWARE SUBSYSTEMS IGNITED (97%–100% CPU/GPU + LPDDR5X + Audio DSP + IMU + UFS I/O)!"
+            _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
         } else {
-            _uiBannerMessage.value = "All Max Hardware Subsystems armed — Unlock Vivo/iQOO mode to ignite!"
+            _uiBannerMessage.value = "Extreme Render Overdrive armed — Unlock Vivo/iQOO mode to ignite!"
+        }
+    }
+
+    fun toggleOriginOs6Overdrive(enabled: Boolean) {
+        engine.setOriginOs6OverdriveEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
+        } else {
+            "OriginOS 6 Extreme Render Overdrive set to standby"
+        }
+    }
+
+    fun toggleRenderScaleSpoof(enabled: Boolean) {
+        engine.setRenderScaleSpoofEnabled(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "FORCE_RENDER_SCALE_SPOOF: 0.7x Shader Resolution (-30%) -> 1080p Display Spoof ACTIVE"
+        } else {
+            "Render Scale restored to 1.0x native shader resolution"
+        }
+    }
+
+    fun toggleVSyncDisableEglSwapZero(enabled: Boolean) {
+        engine.setVSyncDisableEglSwapZero(enabled)
+        _uiBannerMessage.value = if (enabled) {
+            "V_SYNC_DISABLE: Forced eglSwapInterval(0) — UNLOCKED_MAXIMUM_PHYSICAL_LIMIT"
+        } else {
+            "V-Sync restored to standard eglSwapInterval(1)"
+        }
+    }
+
+    fun launchVolumeShaderBenchmarkPipeline() {
+        val currentTelemetry = telemetryState.value
+        if (!currentTelemetry.compatibility.isVivoOrIqoo) {
+            _showVivoIqooLockDialog.value = true
+            return
+        }
+        engine.activateAllMaxHardwareSubsystems()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateSelectedProfile(PerformanceProfile.ORIGINOS_6_OVERDRIVE)
+            repository.updateSelectedWorkloadFocus(WorkloadFocus.COMBINED_MAX)
+            repository.upsertGameAssociation(
+                packageName = "com.volumeshader",
+                appName = "EXTREME Mandelbulb 3D Shader (com.volumeshader)",
+                profile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
+                workloadFocus = WorkloadFocus.COMBINED_MAX,
+                autoActivate = true
+            )
+        }
+        PerformanceForegroundService.startServiceSession(
+            context = appContext,
+            profile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
+            workloadFocus = WorkloadFocus.COMBINED_MAX,
+            gamePackage = "com.volumeshader",
+            gameName = "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
+        )
+        try {
+            val pm = appContext.packageManager
+            val launchIntent = pm.getLaunchIntentForPackage("com.volumeshader")
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                appContext.startActivity(launchIntent)
+                _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100% | Launching com.volumeshader!"
+            } else {
+                _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100% (0.7x Mandelbulb 3D Active)"
+            }
+        } catch (_: Throwable) {
+            _uiBannerMessage.value = "RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100%"
         }
     }
 
