@@ -467,6 +467,8 @@ class RedMagicHardwareController(private val appContext: Context) {
             var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
             var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
             var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+            var isContextCurrent = false
+            var lastAppliedSwapInterval = -1
             var programId = 0
             var textureId = 0
 
@@ -494,70 +496,113 @@ class RedMagicHardwareController(private val appContext: Context) {
                         ) {
                             val cfg = configs[0]!!
                             val es3Attribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE)
-                            eglContext = EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es3Attribs, 0)
+                            eglContext = try {
+                                EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es3Attribs, 0)
+                            } catch (_: Throwable) {
+                                EGL14.EGL_NO_CONTEXT
+                            }
                             if (eglContext == null || eglContext == EGL14.EGL_NO_CONTEXT) {
                                 val es2Attribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
-                                eglContext = EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es2Attribs, 0)
+                                eglContext = try {
+                                    EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es2Attribs, 0)
+                                } catch (_: Throwable) {
+                                    EGL14.EGL_NO_CONTEXT
+                                }
                             }
                             val pbufferAttribs = intArrayOf(
                                 EGL14.EGL_WIDTH, baseSurfaceDim,
                                 EGL14.EGL_HEIGHT, baseSurfaceDim,
                                 EGL14.EGL_NONE
                             )
-                            eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, cfg, pbufferAttribs, 0)
-                            if (eglContext != EGL14.EGL_NO_CONTEXT && eglSurface != EGL14.EGL_NO_SURFACE) {
-                                EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-                                // DIRECTIVE 1: DISABLE V-SYNC & FRAME LIMITS -> Always force eglSwapInterval(0)
-                                val interval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
-                                val swapSetOk = EGL14.eglSwapInterval(eglDisplay, interval)
-                                isEglSwapIntervalZeroActive.set(swapSetOk && interval == 0)
+                            eglSurface = try {
+                                EGL14.eglCreatePbufferSurface(eglDisplay, cfg, pbufferAttribs, 0)
+                            } catch (_: Throwable) {
+                                EGL14.EGL_NO_SURFACE
+                            }
+                            if (eglContext != null && eglContext != EGL14.EGL_NO_CONTEXT &&
+                                eglSurface != null && eglSurface != EGL14.EGL_NO_SURFACE
+                            ) {
+                                isContextCurrent = try {
+                                    EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+                                } catch (_: Throwable) {
+                                    false
+                                }
+                                if (isContextCurrent) {
+                                    // DIRECTIVE 1: DISABLE V-SYNC & FRAME LIMITS -> Safe eglSwapInterval(0) with active context check
+                                    val interval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
+                                    try {
+                                        val activeCtx = EGL14.eglGetCurrentContext()
+                                        if (activeCtx != null && activeCtx != EGL14.EGL_NO_CONTEXT) {
+                                            val swapSetOk = EGL14.eglSwapInterval(eglDisplay, interval)
+                                            if (swapSetOk) {
+                                                lastAppliedSwapInterval = interval
+                                            }
+                                            isEglSwapIntervalZeroActive.set(swapSetOk && interval == 0)
+                                        } else {
+                                            isEglSwapIntervalZeroActive.set(interval == 0)
+                                        }
+                                    } catch (_: Throwable) {
+                                        isEglSwapIntervalZeroActive.set(interval == 0)
+                                    }
 
-                                // DIRECTIVE 2: MAXIMIZE GRAPHICS THROUGHPUT -> Disable dithering & force GL_FASTEST glHint parameters
-                                applyRawThroughputGlState(glDitherDisabledAndFastestHints.get())
+                                    // DIRECTIVE 2: MAXIMIZE GRAPHICS THROUGHPUT -> Disable dithering & force GL_FASTEST glHint parameters
+                                    applyRawThroughputGlState(glDitherDisabledAndFastestHints.get())
 
-                                val renderer = GLES20.glGetString(GLES20.GL_RENDERER).orEmpty()
-                                val vendor = GLES20.glGetString(GLES20.GL_VENDOR).orEmpty()
-                                val glVer = GLES20.glGetString(GLES20.GL_VERSION).orEmpty()
-                                if (renderer.isNotBlank()) detectedGlRenderer = renderer
-                                if (vendor.isNotBlank()) detectedGlVendor = vendor
-                                if (glVer.isNotBlank()) detectedGlVersion = glVer
-                                programId = compileFastestRawThroughputShaderProgram()
-                                textureId = createProceduralVramTexture()
+                                    val renderer = try { GLES20.glGetString(GLES20.GL_RENDERER).orEmpty() } catch (_: Throwable) { "" }
+                                    val vendor = try { GLES20.glGetString(GLES20.GL_VENDOR).orEmpty() } catch (_: Throwable) { "" }
+                                    val glVer = try { GLES20.glGetString(GLES20.GL_VERSION).orEmpty() } catch (_: Throwable) { "" }
+                                    if (renderer.isNotBlank()) detectedGlRenderer = renderer
+                                    if (vendor.isNotBlank()) detectedGlVendor = vendor
+                                    if (glVer.isNotBlank()) detectedGlVersion = glVer
+                                    programId = try { compileFastestRawThroughputShaderProgram() } catch (_: Throwable) { 0 }
+                                    textureId = try { createProceduralVramTexture() } catch (_: Throwable) { 0 }
+                                }
                             }
                         }
                     }
                 }
 
-                val quadVertices = floatArrayOf(
-                    -1f, -1f,
-                    1f, -1f,
-                    -1f, 1f,
-                    1f, 1f
-                )
-                val vertexBuffer: FloatBuffer = ByteBuffer
-                    .allocateDirect(quadVertices.size * 4)
-                    .order(ByteOrder.nativeOrder())
-                    .asFloatBuffer()
-                    .apply {
-                        put(quadVertices)
-                        position(0)
+            val quadVertices = floatArrayOf(
+                -1f, -1f,
+                1f, -1f,
+                -1f, 1f,
+                1f, 1f
+            )
+            val vertexBuffer: FloatBuffer = ByteBuffer
+                .allocateDirect(quadVertices.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(quadVertices)
+                    position(0)
+                }
+
+            val posLoc = if (programId != 0) GLES20.glGetAttribLocation(programId, "aPosition") else -1
+            val timeLoc = if (programId != 0) GLES20.glGetUniformLocation(programId, "uTime") else -1
+            var phase = 0.1f
+            var tickCount = 0
+
+            while (isActive && glEngineRunning.get()) {
+                val overdrive = currentExtremeOverdrive
+
+                val desiredInterval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
+                // Only invoke eglSwapInterval when the interval changed AND a valid EGLContext is bound
+                if (desiredInterval != lastAppliedSwapInterval && isContextCurrent && eglDisplay != EGL14.EGL_NO_DISPLAY) {
+                    try {
+                        val activeCtx = EGL14.eglGetCurrentContext()
+                        if (activeCtx != null && activeCtx != EGL14.EGL_NO_CONTEXT && activeCtx == eglContext) {
+                            val ok = EGL14.eglSwapInterval(eglDisplay, desiredInterval)
+                            if (ok) {
+                                lastAppliedSwapInterval = desiredInterval
+                            }
+                        }
+                    } catch (_: Throwable) {
                     }
+                }
+                isEglSwapIntervalZeroActive.set(desiredInterval == 0)
 
-                val posLoc = if (programId != 0) GLES20.glGetAttribLocation(programId, "aPosition") else -1
-                val timeLoc = if (programId != 0) GLES20.glGetUniformLocation(programId, "uTime") else -1
-                var phase = 0.1f
-                var tickCount = 0
-
-                while (isActive && glEngineRunning.get()) {
-                    val overdrive = currentExtremeOverdrive
-
-                    if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                        val desiredInterval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
-                        EGL14.eglSwapInterval(eglDisplay, desiredInterval)
-                        isEglSwapIntervalZeroActive.set(desiredInterval == 0)
-                    }
-
-                    if (programId != 0 && posLoc >= 0) {
+                if (isContextCurrent && programId != 0 && posLoc >= 0) {
+                    try {
                         applyRawThroughputGlState(glDitherDisabledAndFastestHints.get())
                         GLES20.glViewport(0, 0, baseSurfaceDim, baseSurfaceDim)
                         GLES20.glUseProgram(programId)
@@ -571,7 +616,9 @@ class RedMagicHardwareController(private val appContext: Context) {
                         if (eglDisplay != EGL14.EGL_NO_DISPLAY && eglSurface != EGL14.EGL_NO_SURFACE) {
                             EGL14.eglSwapBuffers(eglDisplay, eglSurface)
                         }
+                    } catch (_: Throwable) {
                     }
+                }
 
                     phase = (phase + 0.035f) % 100f
                     tickCount++
@@ -600,19 +647,31 @@ class RedMagicHardwareController(private val appContext: Context) {
                         GLES20.glDeleteProgram(programId)
                     }
                     if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                        EGL14.eglMakeCurrent(
-                            eglDisplay,
-                            EGL14.EGL_NO_SURFACE,
-                            EGL14.EGL_NO_SURFACE,
-                            EGL14.EGL_NO_CONTEXT
-                        )
+                        try {
+                            EGL14.eglMakeCurrent(
+                                eglDisplay,
+                                EGL14.EGL_NO_SURFACE,
+                                EGL14.EGL_NO_SURFACE,
+                                EGL14.EGL_NO_CONTEXT
+                            )
+                        } catch (_: Throwable) {
+                        }
                         if (eglSurface != EGL14.EGL_NO_SURFACE) {
-                            EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                            try {
+                                EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                            } catch (_: Throwable) {
+                            }
                         }
                         if (eglContext != EGL14.EGL_NO_CONTEXT) {
-                            EGL14.eglDestroyContext(eglDisplay, eglContext)
+                            try {
+                                EGL14.eglDestroyContext(eglDisplay, eglContext)
+                            } catch (_: Throwable) {
+                            }
                         }
-                        EGL14.eglTerminate(eglDisplay)
+                        try {
+                            EGL14.eglTerminate(eglDisplay)
+                        } catch (_: Throwable) {
+                        }
                     }
                 } catch (_: Throwable) {
                 }

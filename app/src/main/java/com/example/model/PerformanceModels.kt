@@ -207,6 +207,90 @@ data class BatteryStatusInfo(
     val isSystemBatterySaverOn: Boolean = false
 )
 
+enum class DeviceHardwareTier(
+    val id: String,
+    val displayName: String,
+    val shortLabel: String,
+    val description: String,
+    val maxRecommendedFps: Int
+) {
+    FLAGSHIP(
+        id = "FLAGSHIP",
+        displayName = "FLAGSHIP ULTRA (High-End SoC)",
+        shortLabel = "FLAGSHIP",
+        description = "iQOO 13/12/Neo, Vivo X-Series, Snapdragon 8 Gen / Dimensity 9000+ Series",
+        maxRecommendedFps = 144
+    ),
+    MID_RANGE(
+        id = "MID_RANGE",
+        displayName = "MID-RANGE (Performance)",
+        shortLabel = "MID-RANGE",
+        description = "Vivo T-Series (T4X/T3), iQOO Z-Series, Snapdragon 7/6s, Dimensity 7000/8000",
+        maxRecommendedFps = 120
+    ),
+    ENTRY_LEVEL(
+        id = "ENTRY_LEVEL",
+        displayName = "ENTRY / BUDGET (Adaptive)",
+        shortLabel = "ENTRY / BUDGET",
+        description = "Vivo Y-Series, 4GB–6GB RAM devices, Entry-Level SoCs",
+        maxRecommendedFps = 90
+    );
+
+    companion object {
+        fun detect(cores: Int, totalRamGb: Double, soc: String, model: String): DeviceHardwareTier {
+            val socLower = soc.lowercase()
+            val modelLower = model.lowercase()
+            val isFlagship = socLower.contains("8 gen") ||
+                socLower.contains("8gen") ||
+                socLower.contains("8 elite") ||
+                socLower.contains("8elite") ||
+                socLower.contains("sm8750") ||
+                socLower.contains("sm8650") ||
+                socLower.contains("sm8550") ||
+                socLower.contains("sm8475") ||
+                socLower.contains("sm8450") ||
+                socLower.contains("sun") ||
+                socLower.contains("pineapple") ||
+                socLower.contains("kalama") ||
+                socLower.contains("taro") ||
+                socLower.contains("888") ||
+                socLower.contains("870") ||
+                socLower.contains("865") ||
+                socLower.contains("dimensity 9") ||
+                socLower.contains("9000") ||
+                socLower.contains("9200") ||
+                socLower.contains("9300") ||
+                socLower.contains("9400") ||
+                socLower.contains("mt6983") ||
+                socLower.contains("mt6985") ||
+                socLower.contains("mt6989") ||
+                socLower.contains("mt6991") ||
+                socLower.contains("immortalis") ||
+                socLower.contains("adreno 7") ||
+                socLower.contains("adreno 8") ||
+                modelLower.contains("iqoo 1") ||
+                modelLower.contains("iqoo neo") ||
+                modelLower.contains("i2214") ||
+                modelLower.contains("v2214") ||
+                modelLower.contains("v2405") ||
+                modelLower.contains("v2307") ||
+                modelLower.contains("v2338") ||
+                modelLower.contains("v2415") ||
+                modelLower.contains("x100") ||
+                modelLower.contains("x200") ||
+                modelLower.contains("x90") ||
+                modelLower.contains("x80") ||
+                modelLower.contains("fold")
+
+            return when {
+                isFlagship || (cores >= 8 && totalRamGb >= 10.5) -> FLAGSHIP
+                cores >= 6 && totalRamGb >= 5.5 -> MID_RANGE
+                else -> ENTRY_LEVEL
+            }
+        }
+    }
+}
+
 /**
  * Live device hardware & software specifications shown to every user who downloads the app.
  */
@@ -229,7 +313,8 @@ data class DeviceLiveSpecs(
     val totalStorageGb: String = "64.0 GB",
     val freeStorageGb: String = "32.0 GB",
     val screenResolution: String = "1080 x 2400",
-    val displayRefreshRateHz: Int = 144
+    val displayRefreshRateHz: Int = 144,
+    val hardwareTier: DeviceHardwareTier = DeviceHardwareTier.MID_RANGE
 )
 
 data class DeviceCompatibilityReport(
@@ -251,7 +336,8 @@ data class DeviceCompatibilityReport(
     val sustainedPerformanceSupported: Boolean = false,
     val thermalMonitoringSupported: Boolean = false,
     val thermalHeadroomSupported: Boolean = false,
-    val oemPerformanceControlStatus: String = "OEM performance control unavailable to this application."
+    val oemPerformanceControlStatus: String = "OEM performance control unavailable to this application.",
+    val hardwareTier: DeviceHardwareTier = DeviceHardwareTier.MID_RANGE
 )
 
 data class ActiveOptimizationIndicator(

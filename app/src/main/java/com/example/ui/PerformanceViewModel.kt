@@ -201,8 +201,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     fun launchVolumeShaderBenchmarkPipeline() {
         val currentTelemetry = telemetryState.value
         if (!currentTelemetry.compatibility.isVivoOrIqoo) {
-            _showVivoIqooLockDialog.value = true
-            return
+            engine.setVivoIqooEmulatorSimulation(true)
         }
         engine.activateAllMaxHardwareSubsystems()
         viewModelScope.launch(Dispatchers.IO) {
@@ -242,9 +241,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         val currentTelemetry = telemetryState.value
 
         if (!currentTelemetry.compatibility.isVivoOrIqoo) {
-            pendingLaunchGame = null
-            _showVivoIqooLockDialog.value = true
-            return
+            engine.setVivoIqooEmulatorSimulation(true)
         }
 
         val prefs = userPreferences.value
@@ -446,9 +443,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         val currentTelemetry = telemetryState.value
 
         if (!currentTelemetry.compatibility.isVivoOrIqoo) {
-            pendingLaunchGame = game
-            _showVivoIqooLockDialog.value = true
-            return
+            engine.setVivoIqooEmulatorSimulation(true)
         }
 
         val prefs = userPreferences.value

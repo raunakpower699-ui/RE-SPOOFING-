@@ -18,6 +18,16 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <package android:name="com.vivo.pem" />
+        <package android:name="com.vivo.abe" />
+        <package android:name="com.vivo.sps" />
+        <package android:name="com.iqoo.powersaving" />
+        <package android:name="com.iqoo.engine" />
+        <package android:name="com.vivo.gamewatch" />
+        <package android:name="com.vivo.game" />
+        <package android:name="com.vivo.upslide" />
+        <package android:name="com.bbk.launcher2" />
+        <package android:name="com.vivo.daemonService" />
     </queries>
 
     <application
