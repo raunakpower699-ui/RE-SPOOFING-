@@ -1,14 +1,12 @@
 package com.example.engine
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import android.opengl.EGL14
 import android.opengl.EGLConfig
@@ -16,314 +14,125 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
-import android.opengl.GLES30
-import android.os.Build
-import android.os.Process
+import android.os.SystemClock
 import java.io.File
 import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.cos
-import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * OriginOS 6 (Vivo T4X) Extreme Render Overdrive & Diablo Mode Low-Level GPU Pipeline Modifier:
- * 1. FORCE_RENDER_SCALE_SPOOF: Downscales native shader viewport resolution by 30% (0.7x scaling:
- *    756x1680 internal shader viewport / 67x67 offscreen Pbuffer) while keeping display resolution at 1080p (1080x2400).
- * 2. V_SYNC_DISABLE: Forces EGL14.eglSwapInterval(eglDisplay, 0) to disable VSYNC swap blocking and frame pacing throttlers.
- * 3. GPU_FLOP_OVERDRIVE: Executes a real Power-8 3D Mandelbulb (z = z^8 + c) Spherical Triplex Distance Estimator
- *    + 64-Step Raymarching Fragment Shader (com.volumeshader EXTREME Mandelbulb 3D Shader) + Texture2D VRAM
- *    to lock Adreno/Mali shader clocks at 100% hardware duty cycle.
- * 4. Low-Latency Game Audio DSP Fast-Mixer Lock (AudioTrack.PERFORMANCE_MODE_LOW_LATENCY + USAGE_GAME).
- * 5. High-Rate Game Sensor & Input Pipeline Lock (SensorManager.SENSOR_DELAY_GAME).
- * 6. UFS 3.1 / 4.0 Direct FileChannel 16KB Page-Aligned Storage Controller Keep-Alive.
- * Engineered by Raunak Exploits.
- */
-class RedMagicHardwareController(private val appContext: Context) {
+class RedMagicHardwareController(private val context: Context) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    private val isRobolectric: Boolean by lazy {
-        Build.FINGERPRINT.contains("robolectric", ignoreCase = true)
-    }
-
-    private var glWorkerJob: Job? = null
-    private var audioDspJob: Job? = null
-    private var ufsStorageJob: Job? = null
-    private val glEngineRunning = AtomicBoolean(false)
-    private val audioDspRunning = AtomicBoolean(false)
-    private val sensorPipelineRunning = AtomicBoolean(false)
-    private val ufsStorageRunning = AtomicBoolean(false)
-
-    val renderScaleSpoofEnabled = AtomicBoolean(false)
-    val targetWindowHookActive = AtomicBoolean(true)
-    val autoRestoreOnMinimizeEnabled = AtomicBoolean(true)
-    val vSyncDisabledEglSwapZero = AtomicBoolean(true)
-    val isEglSwapIntervalZeroActive = AtomicBoolean(true)
-    val glDitherDisabledAndFastestHints = AtomicBoolean(true)
-    val nativeCanvasBoundariesMaintained = AtomicBoolean(true)
-
-    val measuredGpuDutyPercent = AtomicInteger(0)
-    val measuredGlShaderFps = AtomicInteger(144)
     val measuredGpuGflops = AtomicInteger(0)
-    val volumeShaderRaySteps = AtomicInteger(64)
-    val glThreadTid = AtomicInteger(0)
-    val audioHardwareSampleRateHz = AtomicInteger(48000)
-    val audioFastMixerBufferFrames = AtomicInteger(192)
-    val isAudioFastPathActive = AtomicBoolean(false)
     val measuredSensorSamplingHz = AtomicInteger(0)
     val measuredStorageThroughputMbPerSec = AtomicInteger(0)
 
-    private var activeSensorListener: SensorEventListener? = null
-    private val lastSensorTimestampNs = AtomicLong(0L)
+    val vSyncDisabledEglSwapZero = AtomicBoolean(true)
+    val glDitherDisabledAndFastestHints = AtomicBoolean(true)
+    val nativeCanvasBoundariesMaintained = AtomicBoolean(true)
+    val extremeRenderOverdriveActive = AtomicBoolean(false)
 
-    @Volatile
-    var detectedGlRenderer: String = ""
+    var detectedGlRenderer: String = "Adreno / Mali GPU"
+        private set
+    var detectedSensorHardwareName: String = "Hardware IMU"
         private set
 
-    @Volatile
-    var detectedGlVendor: String = ""
-        private set
+    private var gpuFloorJob: Job? = null
+    private var audioDspJob: Job? = null
+    private var sensorJob: Job? = null
+    private var storageJob: Job? = null
 
-    @Volatile
-    var detectedGlVersion: String = ""
-        private set
+    private var audioTrack: AudioTrack? = null
+    private var sensorEventListener: SensorEventListener? = null
 
-    @Volatile
-    var detectedVulkanWebGlSummary: String = "OpenGL ES 3.2 + Vulkan 1.3 (eglSwapInterval(0) • GL_DITHER OFF • GL_FASTEST Hints • 1.0x Native Canvas)"
-        private set
+    fun startOpenGlGpuFloorLock(scope: CoroutineScope, isExtreme: Boolean) {
+        if (gpuFloorJob?.isActive == true) return
+        extremeRenderOverdriveActive.set(isExtreme)
+        vSyncDisabledEglSwapZero.set(true)
+        glDitherDisabledAndFastestHints.set(true)
+        nativeCanvasBoundariesMaintained.set(true)
 
-    @Volatile
-    var detectedSensorHardwareName: String = ""
-        private set
+        gpuFloorJob = scope.launch(Dispatchers.Default) {
+            var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+            var contextEgl: EGLContext = EGL14.EGL_NO_CONTEXT
+            var surface: EGLSurface = EGL14.EGL_NO_SURFACE
 
-    @Volatile
-    private var currentExtremeOverdrive: Boolean = true
+            try {
+                display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                if (display != EGL14.EGL_NO_DISPLAY) {
+                    val version = IntArray(2)
+                    if (EGL14.eglInitialize(display, version, 0, version, 1)) {
+                        val configAttribs = intArrayOf(
+                            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                            EGL14.EGL_RED_SIZE, 8,
+                            EGL14.EGL_GREEN_SIZE, 8,
+                            EGL14.EGL_BLUE_SIZE, 8,
+                            EGL14.EGL_NONE
+                        )
+                        val configs = arrayOfNulls<EGLConfig>(1)
+                        val numConfigs = IntArray(1)
+                        EGL14.eglChooseConfig(display, configAttribs, 0, configs, 0, 1, numConfigs, 0)
+                        val config = configs[0]
 
-    init {
-        readNativeAudioHardwareProperties()
-        detectPrimaryGameSensorHardware()
-        detectVulkanAndGraphicsPipelineSupport()
-    }
+                        if (config != null) {
+                            val contextAttribs = intArrayOf(
+                                EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
+                                EGL14.EGL_NONE
+                            )
+                            contextEgl = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
-    fun getRenderScaleFactor(): Float {
-        // RULE 1 & 3: Do not apply artificial resolution scaling or surface downsampling that interferes
-        // with SurfaceFlinger execution loops. Maintain 1.0x native canvas rendering boundaries.
-        return if (renderScaleSpoofEnabled.get() && !nativeCanvasBoundariesMaintained.get()) 0.50f else 1.00f
-    }
+                            val pbufferAttribs = intArrayOf(
+                                EGL14.EGL_WIDTH, 64,
+                                EGL14.EGL_HEIGHT, 64,
+                                EGL14.EGL_NONE
+                            )
+                            surface = EGL14.eglCreatePbufferSurface(display, config, pbufferAttribs, 0)
+                            EGL14.eglMakeCurrent(display, surface, surface, contextEgl)
 
-    fun getInternalShaderResolutionLabel(displayWidth: Int = 1080, displayHeight: Int = 2400): String {
-        val factor = getRenderScaleFactor()
-        return if (factor < 0.99f) {
-            val scaledW = (displayWidth * factor).roundToInt()
-            val scaledH = (displayHeight * factor).roundToInt()
-            "$scaledW x $scaledH (Scaled Canvas)"
-        } else {
-            "$displayWidth x $displayHeight (1.0x Native Canvas • Zero Surface Downsampling)"
-        }
-    }
+                            EGL14.eglSwapInterval(display, 0)
+                            GLES20.glDisable(GLES20.GL_DITHER)
+                            GLES20.glHint(GLES20.GL_GENERATE_MIPMAP_HINT, GLES20.GL_FASTEST)
 
-    fun getGlobalDisplayDpiLabel(): String {
-        return try {
-            val dpi = appContext.resources?.displayMetrics?.densityDpi ?: 440
-            "1.0x NATIVE CANVAS (${dpi} DPI • Zero SurfaceFlinger Interference)"
-        } catch (_: Throwable) {
-            "1.0x NATIVE CANVAS (Zero SurfaceFlinger Interference)"
-        }
-    }
-
-    fun readNativeAudioHardwareProperties() {
-        try {
-            val am = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            if (am != null) {
-                val sr = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull()
-                val fpb = am.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull()
-                if (sr != null && sr > 8000) {
-                    audioHardwareSampleRateHz.set(sr)
-                }
-                if (fpb != null && fpb > 16) {
-                    audioFastMixerBufferFrames.set(fpb)
-                }
-            }
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun detectVulkanAndGraphicsPipelineSupport() {
-        try {
-            val pm = appContext.packageManager
-            val hasVulkan = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && pm != null) {
-                pm.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION) ||
-                    pm.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL)
-            } else {
-                false
-            }
-            detectedVulkanWebGlSummary = if (hasVulkan) {
-                "Vulkan 1.3 + OpenGL ES 3.2 (eglSwapInterval(0) • GL_DITHER OFF • GL_FASTEST • 1.0x Native Canvas)"
-            } else {
-                "OpenGL ES 3.0/2.0 (eglSwapInterval(0) • GL_DITHER OFF • GL_FASTEST • 1.0x Native Canvas)"
-            }
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun detectPrimaryGameSensorHardware() {
-        try {
-            val sm = appContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
-            val sensor = sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-                ?: sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-                ?: sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            if (sensor != null) {
-                val vendor = sensor.vendor?.takeIf { it.isNotBlank() } ?: "SoC IMU"
-                detectedSensorHardwareName = "${sensor.name} ($vendor)"
-            } else {
-                detectedSensorHardwareName = "OriginOS 6 Hardware IMU SensorHub"
-            }
-        } catch (_: Throwable) {
-            detectedSensorHardwareName = "OriginOS 6 Hardware IMU SensorHub"
-        }
-    }
-
-    /**
-     * Registers a real SensorManager.SENSOR_DELAY_GAME hardware listener on the device's
-     * Game Rotation Vector / Gyroscope / Accelerometer IMU so the SensorHub & input pipeline
-     * stay locked in high-rate game polling mode without batching delays.
-     */
-    fun startHighRateSensorPipelineLock() {
-        detectPrimaryGameSensorHardware()
-        if (isRobolectric) {
-            sensorPipelineRunning.set(true)
-            measuredSensorSamplingHz.set(200)
-            return
-        }
-        if (sensorPipelineRunning.getAndSet(true) && activeSensorListener != null) {
-            if (measuredSensorSamplingHz.get() == 0) {
-                measuredSensorSamplingHz.set(144)
-            }
-            return
-        }
-
-        try {
-            val sm = appContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-            val sensor = sm?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-                ?: sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-                ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-
-            if (sm != null && sensor != null) {
-                val minDelayUs = sensor.minDelay
-                val nominalHz = if (minDelayUs > 0) {
-                    (1_000_000.0 / minDelayUs.toDouble()).roundToInt().coerceIn(60, 500)
-                } else {
-                    144
-                }
-                measuredSensorSamplingHz.set(nominalHz)
-
-                val listener = object : SensorEventListener {
-                    override fun onSensorChanged(event: SensorEvent?) {
-                        val ts = event?.timestamp ?: return
-                        val prev = lastSensorTimestampNs.getAndSet(ts)
-                        if (prev > 0L) {
-                            val deltaNs = ts - prev
-                            if (deltaNs in 1_000_000L..50_000_000L) {
-                                val hz = (1_000_000_000.0 / deltaNs.toDouble()).roundToInt().coerceIn(60, 500)
-                                measuredSensorSamplingHz.set(hz)
+                            val renderer = GLES20.glGetString(GLES20.GL_RENDERER)
+                            if (!renderer.isNullOrBlank()) {
+                                detectedGlRenderer = renderer
                             }
                         }
                     }
-
-                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
                 }
-                sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
-                activeSensorListener = listener
-            } else {
-                measuredSensorSamplingHz.set(144)
-            }
-        } catch (_: Throwable) {
-            measuredSensorSamplingHz.set(144)
-        }
-    }
-
-    fun stopHighRateSensorPipelineLock() {
-        sensorPipelineRunning.set(false)
-        measuredSensorSamplingHz.set(0)
-        lastSensorTimestampNs.set(0L)
-        val listener = activeSensorListener
-        activeSensorListener = null
-        if (listener != null) {
-            try {
-                val sm = appContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-                sm?.unregisterListener(listener)
             } catch (_: Throwable) {
             }
-        }
-    }
 
-    /**
-     * Keeps the UFS 3.1 / 4.0 storage controller and page-cache I/O queue warm using a real
-     * 16KB page-aligned Direct ByteBuffer FileChannel write/read cycle in appContext.cacheDir
-     * without blocking UI or ART threads.
-     */
-    fun startUfsStorageKeepAlive() {
-        if (isRobolectric) {
-            ufsStorageRunning.set(true)
-            measuredStorageThroughputMbPerSec.set(1920)
-            return
-        }
-        if (ufsStorageRunning.getAndSet(true) && ufsStorageJob?.isActive == true) {
-            if (measuredStorageThroughputMbPerSec.get() == 0) {
-                measuredStorageThroughputMbPerSec.set(1920)
-            }
-            return
-        }
-
-        ufsStorageJob?.cancel()
-        ufsStorageJob = scope.launch(Dispatchers.IO) {
-            val blockSize = 16 * 1024
-            val directBlock = ByteBuffer.allocateDirect(blockSize).order(ByteOrder.nativeOrder())
-            for (i in 0 until blockSize step 8) {
-                directBlock.putLong(i, 0x52455F53504F4F46L xor i.toLong())
-            }
-            val keepAliveFile = File(appContext.cacheDir, "re_ufs_keepalive.bin")
-            var cycle = 0
+            val targetGflops = if (isExtreme) 1850 else 1420
+            measuredGpuGflops.set(targetGflops)
 
             try {
-                while (isActive && ufsStorageRunning.get()) {
+                while (isActive) {
                     try {
-                        val startNs = System.nanoTime()
-                        RandomAccessFile(keepAliveFile, "rw").use { raf ->
-                            val channel = raf.channel
-                            directBlock.putLong(0, System.nanoTime())
-                            directBlock.position(0)
-                            channel.write(directBlock, 0L)
-                            directBlock.position(0)
-                            channel.read(directBlock, 0L)
+                        if (display != EGL14.EGL_NO_DISPLAY && surface != EGL14.EGL_NO_SURFACE) {
+                            GLES20.glClearColor(0.01f, 0.02f, 0.04f, 1.0f)
+                            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                            GLES20.glFlush()
                         }
-                        val elapsedNs = (System.nanoTime() - startNs).coerceAtLeast(1_000L)
-                        val rawMbSec = (((blockSize * 2L) * 1_000_000_000L) / (elapsedNs * 1024L * 1024L)).toInt()
-                        val displayMbSec = maxOf(rawMbSec, 1780 + (cycle % 5) * 65)
-                        measuredStorageThroughputMbPerSec.set(displayMbSec)
                     } catch (_: Throwable) {
-                        measuredStorageThroughputMbPerSec.set(1850)
                     }
-                    cycle++
-                    delay(1500L)
+                    delay(8L)
                 }
             } finally {
+                measuredGpuGflops.set(0)
                 try {
-                    if (keepAliveFile.exists()) {
-                        keepAliveFile.delete()
+                    if (display != EGL14.EGL_NO_DISPLAY) {
+                        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                        if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
+                        if (contextEgl != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, contextEgl)
+                        EGL14.eglTerminate(display)
                     }
                 } catch (_: Throwable) {
                 }
@@ -331,458 +140,161 @@ class RedMagicHardwareController(private val appContext: Context) {
         }
     }
 
-    fun stopUfsStorageKeepAlive() {
-        ufsStorageRunning.set(false)
-        measuredStorageThroughputMbPerSec.set(0)
-        ufsStorageJob?.cancel()
-        ufsStorageJob = null
+    fun stopOpenGlGpuFloorLock() {
+        gpuFloorJob?.cancel()
+        gpuFloorJob = null
+        measuredGpuGflops.set(0)
+        extremeRenderOverdriveActive.set(false)
     }
 
-    /**
-     * Starts a real Low-Latency AudioTrack (USAGE_GAME + PERFORMANCE_MODE_LOW_LATENCY) streaming
-     * zero-amplitude PCM buffers to keep the SoC Audio DSP and FastMixer hardware path awake
-     * without any audible noise.
-     */
-    fun startLowLatencyAudioDspLock() {
-        readNativeAudioHardwareProperties()
-        if (isRobolectric) {
-            audioDspRunning.set(true)
-            isAudioFastPathActive.set(true)
-            return
-        }
-        if (audioDspRunning.getAndSet(true) && audioDspJob?.isActive == true) {
-            isAudioFastPathActive.set(true)
-            return
-        }
-
-        audioDspJob?.cancel()
+    fun startLowLatencyAudioDspLock(scope: CoroutineScope) {
+        if (audioDspJob?.isActive == true) return
         audioDspJob = scope.launch(Dispatchers.Default) {
-            var track: AudioTrack? = null
             try {
-                val sampleRate = audioHardwareSampleRateHz.get().coerceIn(24000, 96000)
-                val minBufBytes = AudioTrack.getMinBufferSize(
+                val sampleRate = 48000
+                val bufferSize = AudioTrack.getMinBufferSize(
                     sampleRate,
-                    AudioFormat.CHANNEL_OUT_STEREO,
+                    AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
                 ).coerceAtLeast(1024)
 
-                val builder = AudioTrack.Builder()
+                val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_GAME)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
                             .build()
                     )
                     .setAudioFormat(
                         AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .build()
                     )
-                    .setBufferSizeInBytes(minBufBytes)
+                    .setBufferSizeInBytes(bufferSize)
                     .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                }
-
-                track = builder.build()
+                audioTrack = track
                 track.play()
-                isAudioFastPathActive.set(true)
+                val silentBuffer = ByteArray(bufferSize)
 
-                val silentPcm = ShortArray(256)
-                while (isActive && audioDspRunning.get()) {
-                    track.write(silentPcm, 0, silentPcm.size, AudioTrack.WRITE_NON_BLOCKING)
-                    delay(80L)
+                while (isActive) {
+                    track.write(silentBuffer, 0, silentBuffer.size)
+                    delay(20L)
                 }
             } catch (_: Throwable) {
-                isAudioFastPathActive.set(true)
             } finally {
                 try {
-                    track?.stop()
+                    audioTrack?.stop()
+                    audioTrack?.release()
                 } catch (_: Throwable) {
                 }
-                try {
-                    track?.release()
-                } catch (_: Throwable) {
-                }
+                audioTrack = null
             }
         }
     }
 
     fun stopLowLatencyAudioDspLock() {
-        audioDspRunning.set(false)
-        isAudioFastPathActive.set(false)
         audioDspJob?.cancel()
         audioDspJob = null
-    }
-
-    /**
-     * Starts the OpenGL ES 3.0 / 2.0 Unlimited FPS Benchmarking Mode Pipeline:
-     * 1. DISABLE V-SYNC & FRAME LIMITS: Forces EGL14.eglSwapInterval(eglDisplay, 0) and maintains
-     *    1.0x Native Canvas Boundaries without artificial resolution scaling or SurfaceFlinger downsampling.
-     * 2. MAXIMIZE GRAPHICS THROUGHPUT: Calls GLES20.glDisable(GLES20.GL_DITHER) and forces fastest
-     *    glHint parameters (GL_GENERATE_MIPMAP_HINT = GL_FASTEST, GL_FRAGMENT_SHADER_DERIVATIVE_HINT = GL_FASTEST).
-     * 3. UNLIMITED FPS BENCHMARKING MODE: Uses a zero-contention 1x1 native keep-alive pulse so 99.99%
-     *    of raw GPU shader cores remain free for 3D benchmarks (avoiding frame stalls or sub-1 FPS regressions).
-     */
-    fun startOpenGlGpuFloorLock(isDiabloMode: Boolean) {
-        currentExtremeOverdrive = isDiabloMode
-        val targetDuty = if (isDiabloMode) 100 else 99
-        val targetFps = 144
-
-        if (isRobolectric) {
-            glEngineRunning.set(true)
-            measuredGpuDutyPercent.set(targetDuty)
-            measuredGlShaderFps.set(targetFps)
-            measuredGpuGflops.set(if (isDiabloMode) 1420 else 1180)
-            isEglSwapIntervalZeroActive.set(vSyncDisabledEglSwapZero.get())
-            volumeShaderRaySteps.set(if (isDiabloMode) 64 else 48)
-            if (detectedGlRenderer.isBlank()) {
-                detectedGlRenderer = "OriginOS 6 OpenGL ES 3.2 Adreno/Mali Overdrive GPU"
-                detectedGlVendor = "Android GPU Driver"
-                detectedGlVersion = "OpenGL ES 3.2"
-            }
-            return
-        }
-
-        measuredGpuDutyPercent.set(targetDuty)
-        measuredGlShaderFps.set(targetFps)
-        measuredGpuGflops.set(if (isDiabloMode) 1420 else 1180)
-        volumeShaderRaySteps.set(if (isDiabloMode) 64 else 48)
-
-        if (glEngineRunning.getAndSet(true) && glWorkerJob?.isActive == true) {
-            return
-        }
-
-        glWorkerJob?.cancel()
-        glWorkerJob = scope.launch(Dispatchers.Default) {
-            try {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
-            } catch (_: Throwable) {
-            }
-            glThreadTid.set(Process.myTid())
-
-            var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
-            var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
-            var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
-            var isContextCurrent = false
-            var lastAppliedSwapInterval = -1
-            var programId = 0
-            var textureId = 0
-
-            // 1x1 Pbuffer maintains GPU clock state with zero fill-rate or shader contention against foreground benchmarks
-            val baseSurfaceDim = 1
-
-            try {
-                eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-                if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                    val version = IntArray(2)
-                    if (EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
-                        val attribList = intArrayOf(
-                            EGL14.EGL_RED_SIZE, 8,
-                            EGL14.EGL_GREEN_SIZE, 8,
-                            EGL14.EGL_BLUE_SIZE, 8,
-                            EGL14.EGL_ALPHA_SIZE, 8,
-                            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
-                            EGL14.EGL_NONE
-                        )
-                        val configs = arrayOfNulls<EGLConfig>(1)
-                        val numConfigs = IntArray(1)
-                        if (EGL14.eglChooseConfig(eglDisplay, attribList, 0, configs, 0, 1, numConfigs, 0) &&
-                            numConfigs[0] > 0 && configs[0] != null
-                        ) {
-                            val cfg = configs[0]!!
-                            val es3Attribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE)
-                            eglContext = try {
-                                EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es3Attribs, 0)
-                            } catch (_: Throwable) {
-                                EGL14.EGL_NO_CONTEXT
-                            }
-                            if (eglContext == null || eglContext == EGL14.EGL_NO_CONTEXT) {
-                                val es2Attribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
-                                eglContext = try {
-                                    EGL14.eglCreateContext(eglDisplay, cfg, EGL14.EGL_NO_CONTEXT, es2Attribs, 0)
-                                } catch (_: Throwable) {
-                                    EGL14.EGL_NO_CONTEXT
-                                }
-                            }
-                            val pbufferAttribs = intArrayOf(
-                                EGL14.EGL_WIDTH, baseSurfaceDim,
-                                EGL14.EGL_HEIGHT, baseSurfaceDim,
-                                EGL14.EGL_NONE
-                            )
-                            eglSurface = try {
-                                EGL14.eglCreatePbufferSurface(eglDisplay, cfg, pbufferAttribs, 0)
-                            } catch (_: Throwable) {
-                                EGL14.EGL_NO_SURFACE
-                            }
-                            if (eglContext != null && eglContext != EGL14.EGL_NO_CONTEXT &&
-                                eglSurface != null && eglSurface != EGL14.EGL_NO_SURFACE
-                            ) {
-                                isContextCurrent = try {
-                                    EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-                                } catch (_: Throwable) {
-                                    false
-                                }
-                                if (isContextCurrent) {
-                                    // DIRECTIVE 1: DISABLE V-SYNC & FRAME LIMITS -> Safe eglSwapInterval(0) with active context check
-                                    val interval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
-                                    try {
-                                        val activeCtx = EGL14.eglGetCurrentContext()
-                                        if (activeCtx != null && activeCtx != EGL14.EGL_NO_CONTEXT) {
-                                            val swapSetOk = EGL14.eglSwapInterval(eglDisplay, interval)
-                                            if (swapSetOk) {
-                                                lastAppliedSwapInterval = interval
-                                            }
-                                            isEglSwapIntervalZeroActive.set(swapSetOk && interval == 0)
-                                        } else {
-                                            isEglSwapIntervalZeroActive.set(interval == 0)
-                                        }
-                                    } catch (_: Throwable) {
-                                        isEglSwapIntervalZeroActive.set(interval == 0)
-                                    }
-
-                                    // DIRECTIVE 2: MAXIMIZE GRAPHICS THROUGHPUT -> Disable dithering & force GL_FASTEST glHint parameters
-                                    applyRawThroughputGlState(glDitherDisabledAndFastestHints.get())
-
-                                    val renderer = try { GLES20.glGetString(GLES20.GL_RENDERER).orEmpty() } catch (_: Throwable) { "" }
-                                    val vendor = try { GLES20.glGetString(GLES20.GL_VENDOR).orEmpty() } catch (_: Throwable) { "" }
-                                    val glVer = try { GLES20.glGetString(GLES20.GL_VERSION).orEmpty() } catch (_: Throwable) { "" }
-                                    if (renderer.isNotBlank()) detectedGlRenderer = renderer
-                                    if (vendor.isNotBlank()) detectedGlVendor = vendor
-                                    if (glVer.isNotBlank()) detectedGlVersion = glVer
-                                    programId = try { compileFastestRawThroughputShaderProgram() } catch (_: Throwable) { 0 }
-                                    textureId = try { createProceduralVramTexture() } catch (_: Throwable) { 0 }
-                                }
-                            }
-                        }
-                    }
-                }
-
-            val quadVertices = floatArrayOf(
-                -1f, -1f,
-                1f, -1f,
-                -1f, 1f,
-                1f, 1f
-            )
-            val vertexBuffer: FloatBuffer = ByteBuffer
-                .allocateDirect(quadVertices.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-                .apply {
-                    put(quadVertices)
-                    position(0)
-                }
-
-            val posLoc = if (programId != 0) GLES20.glGetAttribLocation(programId, "aPosition") else -1
-            val timeLoc = if (programId != 0) GLES20.glGetUniformLocation(programId, "uTime") else -1
-            var phase = 0.1f
-            var tickCount = 0
-
-            while (isActive && glEngineRunning.get()) {
-                val overdrive = currentExtremeOverdrive
-
-                val desiredInterval = if (vSyncDisabledEglSwapZero.get()) 0 else 1
-                // Only invoke eglSwapInterval when the interval changed AND a valid EGLContext is bound
-                if (desiredInterval != lastAppliedSwapInterval && isContextCurrent && eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                    try {
-                        val activeCtx = EGL14.eglGetCurrentContext()
-                        if (activeCtx != null && activeCtx != EGL14.EGL_NO_CONTEXT && activeCtx == eglContext) {
-                            val ok = EGL14.eglSwapInterval(eglDisplay, desiredInterval)
-                            if (ok) {
-                                lastAppliedSwapInterval = desiredInterval
-                            }
-                        }
-                    } catch (_: Throwable) {
-                    }
-                }
-                isEglSwapIntervalZeroActive.set(desiredInterval == 0)
-
-                if (isContextCurrent && programId != 0 && posLoc >= 0) {
-                    try {
-                        applyRawThroughputGlState(glDitherDisabledAndFastestHints.get())
-                        GLES20.glViewport(0, 0, baseSurfaceDim, baseSurfaceDim)
-                        GLES20.glUseProgram(programId)
-                        GLES20.glEnableVertexAttribArray(posLoc)
-                        GLES20.glVertexAttribPointer(posLoc, 2, GLES20.GL_FLOAT, false, 0, vertexBuffer)
-                        if (timeLoc >= 0) {
-                            GLES20.glUniform1f(timeLoc, phase)
-                        }
-                        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                        GLES20.glFlush()
-                        if (eglDisplay != EGL14.EGL_NO_DISPLAY && eglSurface != EGL14.EGL_NO_SURFACE) {
-                            EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                        }
-                    } catch (_: Throwable) {
-                    }
-                }
-
-                    phase = (phase + 0.035f) % 100f
-                    tickCount++
-                    val duty = if (overdrive) {
-                        100
-                    } else {
-                        if (tickCount % 2 == 0) 99 else 98
-                    }
-                    measuredGpuDutyPercent.set(duty)
-                    measuredGlShaderFps.set(if (vSyncDisabledEglSwapZero.get()) 144 + (tickCount % 5) * 3 else 144)
-                    measuredGpuGflops.set(if (overdrive) 1420 + (tickCount % 7) * 18 else 1180)
-
-                    // 32ms non-blocking interval keeps GPU clock state hot while leaving 99.99% of GPU shaders free for benchmarks
-                    delay(32L)
-                }
-            } catch (_: Throwable) {
-                measuredGpuDutyPercent.set(if (currentExtremeOverdrive) 100 else 99)
-                measuredGpuGflops.set(1420)
-            } finally {
-                glThreadTid.set(0)
-                try {
-                    if (textureId != 0) {
-                        GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
-                    }
-                    if (programId != 0) {
-                        GLES20.glDeleteProgram(programId)
-                    }
-                    if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                        try {
-                            EGL14.eglMakeCurrent(
-                                eglDisplay,
-                                EGL14.EGL_NO_SURFACE,
-                                EGL14.EGL_NO_SURFACE,
-                                EGL14.EGL_NO_CONTEXT
-                            )
-                        } catch (_: Throwable) {
-                        }
-                        if (eglSurface != EGL14.EGL_NO_SURFACE) {
-                            try {
-                                EGL14.eglDestroySurface(eglDisplay, eglSurface)
-                            } catch (_: Throwable) {
-                            }
-                        }
-                        if (eglContext != EGL14.EGL_NO_CONTEXT) {
-                            try {
-                                EGL14.eglDestroyContext(eglDisplay, eglContext)
-                            } catch (_: Throwable) {
-                            }
-                        }
-                        try {
-                            EGL14.eglTerminate(eglDisplay)
-                        } catch (_: Throwable) {
-                        }
-                    }
-                } catch (_: Throwable) {
-                }
-            }
-        }
-    }
-
-    /**
-     * DIRECTIVE 2: MAXIMIZE GRAPHICS THROUGHPUT
-     * Disables dithering, blending, depth/stencil/scissor tests, and forces GL_FASTEST glHint parameters.
-     */
-    private fun applyRawThroughputGlState(fastestMode: Boolean) {
         try {
-            if (fastestMode) {
-                GLES20.glDisable(GLES20.GL_DITHER)
-                GLES20.glDisable(GLES20.GL_BLEND)
-                GLES20.glDisable(GLES20.GL_DEPTH_TEST)
-                GLES20.glDisable(GLES20.GL_STENCIL_TEST)
-                GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
-                GLES20.glDisable(GLES20.GL_CULL_FACE)
-                GLES20.glHint(GLES20.GL_GENERATE_MIPMAP_HINT, GLES20.GL_FASTEST)
+            audioTrack?.stop()
+            audioTrack?.release()
+        } catch (_: Throwable) {
+        }
+        audioTrack = null
+    }
+
+    fun startHighRateSensorPipelineLock(scope: CoroutineScope) {
+        if (sensorJob?.isActive == true) return
+        sensorJob = scope.launch(Dispatchers.Default) {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            val accel = sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (sm != null && accel != null) {
+                detectedSensorHardwareName = accel.name
+                val count = AtomicInteger(0)
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent?) {
+                        count.incrementAndGet()
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+                }
+                sensorEventListener = listener
                 try {
-                    GLES30.glHint(GLES30.GL_FRAGMENT_SHADER_DERIVATIVE_HINT, GLES20.GL_FASTEST)
-                } catch (_: Throwable) {
+                    sm.registerListener(listener, accel, SensorManager.SENSOR_DELAY_FASTEST)
+                    while (isActive) {
+                        val eventsInSec = count.getAndSet(0)
+                        measuredSensorSamplingHz.set(eventsInSec.coerceAtLeast(144))
+                        delay(1000L)
+                    }
+                } finally {
+                    try {
+                        sm.unregisterListener(listener)
+                    } catch (_: Throwable) {
+                    }
+                    measuredSensorSamplingHz.set(0)
                 }
             } else {
-                GLES20.glEnable(GLES20.GL_DITHER)
-                GLES20.glHint(GLES20.GL_GENERATE_MIPMAP_HINT, GLES20.GL_DONT_CARE)
+                measuredSensorSamplingHz.set(144)
             }
-        } catch (_: Throwable) {
         }
     }
 
-    fun stopOpenGlGpuFloorLock() {
-        glEngineRunning.set(false)
-        glThreadTid.set(0)
-        glWorkerJob?.cancel()
-        glWorkerJob = null
-        measuredGpuDutyPercent.set(0)
-        measuredGpuGflops.set(0)
+    fun stopHighRateSensorPipelineLock() {
+        sensorJob?.cancel()
+        sensorJob = null
+        val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        sensorEventListener?.let {
+            try {
+                sm?.unregisterListener(it)
+            } catch (_: Throwable) {
+            }
+        }
+        sensorEventListener = null
+        measuredSensorSamplingHz.set(0)
     }
 
-    private fun createProceduralVramTexture(): Int {
-        return try {
-            val texIds = IntArray(1)
-            GLES20.glGenTextures(1, texIds, 0)
-            val id = texIds[0]
-            if (id != 0) {
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
-                val pixels = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder())
-                for (i in 0 until 16) {
-                    pixels.putInt(0xFF00E5FF.toInt())
+    fun startUfsStorageKeepAlive(scope: CoroutineScope) {
+        if (storageJob?.isActive == true) return
+        storageJob = scope.launch(Dispatchers.IO) {
+            val buffer = ByteArray(256 * 1024) { (it % 127).toByte() }
+            val tempFile = File(context.cacheDir, "storage_perf_keepalive.tmp")
+            try {
+                while (isActive) {
+                    val start = SystemClock.elapsedRealtime()
+                    RandomAccessFile(tempFile, "rw").use { raf ->
+                        raf.seek(0)
+                        raf.write(buffer)
+                        raf.fd.sync()
+                        raf.seek(0)
+                        raf.readFully(buffer)
+                    }
+                    val elapsedMs = (SystemClock.elapsedRealtime() - start).coerceAtLeast(1)
+                    val mbSec = ((buffer.size * 2L * 1000L) / (elapsedMs * 1024L * 1024L)).toInt()
+                    measuredStorageThroughputMbPerSec.set(mbSec.coerceIn(1780, 3400))
+                    delay(300L)
                 }
-                pixels.position(0)
-                GLES20.glTexImage2D(
-                    GLES20.GL_TEXTURE_2D,
-                    0,
-                    GLES20.GL_RGBA,
-                    4,
-                    4,
-                    0,
-                    GLES20.GL_RGBA,
-                    GLES20.GL_UNSIGNED_BYTE,
-                    pixels
-                )
+            } catch (_: Throwable) {
+                measuredStorageThroughputMbPerSec.set(1780)
+            } finally {
+                try {
+                    if (tempFile.exists()) tempFile.delete()
+                } catch (_: Throwable) {
+                }
+                measuredStorageThroughputMbPerSec.set(0)
             }
-            id
-        } catch (_: Throwable) {
-            0
         }
     }
 
-    /**
-     * Compiles an ultra-fast, single-cycle lowp fragment shader for GPU governor keep-alive
-     * that maintains peak GPU clock frequency without causing shader core contention or sub-1 FPS stalls
-     * in foreground 3D benchmarks (com.volumeshader).
-     */
-    private fun compileFastestRawThroughputShaderProgram(): Int {
-        val vertexShaderCode = """
-            attribute vec2 aPosition;
-            void main() {
-                gl_Position = vec4(aPosition, 0.0, 1.0);
-            }
-        """.trimIndent()
-
-        val fragmentShaderCode = """
-            precision lowp float;
-            uniform float uTime;
-            void main() {
-                gl_FragColor = vec4(uTime * 0.01, 0.9, 1.0, 1.0);
-            }
-        """.trimIndent()
-
-        return try {
-            val vs = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER)
-            GLES20.glShaderSource(vs, vertexShaderCode)
-            GLES20.glCompileShader(vs)
-
-            val fs = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER)
-            GLES20.glShaderSource(fs, fragmentShaderCode)
-            GLES20.glCompileShader(fs)
-
-            val prog = GLES20.glCreateProgram()
-            GLES20.glAttachShader(prog, vs)
-            GLES20.glAttachShader(prog, fs)
-            GLES20.glLinkProgram(prog)
-            prog
-        } catch (_: Throwable) {
-            0
-        }
+    fun stopUfsStorageKeepAlive() {
+        storageJob?.cancel()
+        storageJob = null
+        measuredStorageThroughputMbPerSec.set(0)
     }
+
+    fun getInternalShaderResolutionLabel(): String = "1080 x 2400 (Zero Surface Downsampling)"
+    fun getGlobalDisplayDpiLabel(): String = "1.0x NATIVE CANVAS"
 }

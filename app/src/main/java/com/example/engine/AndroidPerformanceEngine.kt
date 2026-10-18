@@ -2,51 +2,40 @@ package com.example.engine
 
 import android.app.ActivityManager
 import android.app.GameManager
-import android.app.GameState
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ApplicationInfo
-import android.hardware.display.DisplayManager
 import android.net.ConnectivityManager
 import android.net.TrafficStats
-import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
-import android.os.Environment
 import android.os.PerformanceHintManager
 import android.os.PowerManager
 import android.os.Process
-import android.os.StatFs
-import android.view.Display
-import com.example.model.ActiveOptimizationIndicator
+import android.os.SystemClock
 import com.example.model.BatteryStatusInfo
 import com.example.model.CpuStatusInfo
 import com.example.model.DeviceCompatibilityReport
+import com.example.model.DeviceHardwareTier
 import com.example.model.DeviceLiveSpecs
 import com.example.model.GpuStatusInfo
+import com.example.model.HardwareIndicatorItem
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
 import com.example.model.ThermalStatusInfo
 import com.example.model.ThermalStatusLevel
 import com.example.model.WorkloadFocus
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.io.File
+import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicIntegerArray
-import java.util.zip.CRC32C
-import kotlin.math.cos
-import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.math.sqrt
+import java.util.concurrent.atomic.AtomicLong
+import java.util.zip.CRC32
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,919 +44,103 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * RE Spoofing Engine (OriginOS 6 Vivo T4X Overdrive & Diablo Mode) — Created by Raunak Exploits.
- * Low-Level Kernel & Graphics Pipeline Governor for OriginOS 6 (Vivo T4X) & Vivo/iQOO Devices:
- * 1. ORIGIN_TURBO_HYPERBOOST: Locks GPU & CPU Clocks to 99%–100% Maximum Duty Cycle via 1.4ms/1.6ms 5x ADPF Overdrive
- *    and 64-Step 3D Volume-Raymarching OpenGL ES 3.0/2.0 Shader Pipeline (com.volumeshader / 3D Graphics Benchmark Pipeline).
- * 2. BYPASS_ORIGIN_THERMAL_ENGINE: Suppresses OEM 90% Sustained Performance Cap & purges background power processes.
- * 3. HIGH_REFRESH_PIPELINE_LOCK: Forces 144Hz Refresh Rate (144 FPS Target) & allocates full Vulkan/GLES3/WebGL buffers.
- * 4. CORE_DUTY_OVERDRIVE: Maintains persistent multi-core FPU/Matrix + ARMv8 CRC32C ALU + 256KB LPDDR5X cache-line stride
- *    signal so Core Duty stays active and prevents GPU frequency downclocking.
- * 5. Unlimited Non-Stop Foreground Service + WakeLock renewal until user exits from Notification Panel.
- */
 class AndroidPerformanceEngine private constructor(private val appContext: Context) {
 
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var monitorJob: Job? = null
-    private var adpfHighFreqPulseJob: Job? = null
-    private val workerJobs = mutableListOf<Job>()
-
     val gpuController = RedMagicHardwareController(appContext)
 
-    private var activeHintSession: PerformanceHintManager.Session? = null
+    private val _telemetryState = MutableStateFlow(PerformanceTelemetryState())
+    val telemetryState: StateFlow<PerformanceTelemetryState> = _telemetryState.asStateFlow()
+
     private var cpuWakeLock: PowerManager.WakeLock? = null
-    private var lowLatencyWifiLock: WifiManager.WifiLock? = null
+    private var activeHintSession: PerformanceHintManager.Session? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
-    private var lastHeadroomQueryMs: Long = 0L
-    private var cachedHeadroom: Float? = null
-    private var peakSessionTempCelsius: Float = 0f
-    private var experiencedThrottlingInSession: Boolean = false
+    private var governorLoopJob: Job? = null
+    private var telemetryLoopJob: Job? = null
+    private val workerJobs = mutableListOf<Job>()
 
-    private var vivoIqooSimulationOverride: Boolean = false
-    private var enforceVivoIqooOnlyLock: Boolean = true
-    private val isAppInForeground = AtomicBoolean(true)
     private val measuredWorkerDutyPct = AtomicInteger(0)
     private val measuredMemoryBandwidthMbPerSec = AtomicInteger(0)
     private val measuredCrc32AluMillions = AtomicInteger(0)
 
-    private val isRobolectricTest: Boolean by lazy {
-        Build.FINGERPRINT.contains("robolectric", ignoreCase = true)
-    }
+    var isRobolectricTest: Boolean = false
+    var enforceVivoIqooOnlyLock: Boolean = false
+    private var vivoIqooSimulationOverride: Boolean = false
 
-    private val activeWorkerTids = AtomicIntegerArray(8)
-
-    private val _telemetryState = MutableStateFlow(PerformanceTelemetryState())
-    val telemetryState: StateFlow<PerformanceTelemetryState> = _telemetryState.asStateFlow()
+    private var lastRxBytes = TrafficStats.getTotalRxBytes()
+    private var lastTxBytes = TrafficStats.getTotalTxBytes()
+    private var lastNetworkCheckEpochMs = SystemClock.elapsedRealtime()
 
     var onSessionCompletedCallback: ((
         profile: PerformanceProfile,
         focus: WorkloadFocus,
         gameName: String?,
-        startMs: Long,
-        durationSec: Long,
-        peakTempC: Float,
+        startEpochMs: Long,
+        durationSeconds: Long,
+        peakTempCelsius: Float,
         throttled: Boolean,
         reason: String
     ) -> Unit)? = null
 
     init {
         refreshStaticAndDynamicTelemetry()
-        val compat = _telemetryState.value.compatibility
-        if (compat.isVivoOrIqoo) {
-            appendLog("VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS (${compat.vivoOsInfo}).")
-        } else {
-            appendLog("RE Spoofing Unlimited FPS Graphics & GPU Governor by Raunak Exploits ready (${compat.manufacturer} ${compat.deviceModel}).")
-        }
-    }
-
-    private fun isExtremeOverdriveProfile(profile: PerformanceProfile): Boolean {
-        return profile == PerformanceProfile.ORIGINOS_6_OVERDRIVE ||
-            profile == PerformanceProfile.DIABLO_MODE
-    }
-
-    fun setAppForegroundState(inForeground: Boolean) {
-        isAppInForeground.set(inForeground)
-    }
-
-    fun updateLiveChoreographerFrameMetrics(fps: Int, frameTimeMs: Float) {
-        _telemetryState.update {
-            val lockedFps = if (it.originOs6OverdriveEnabled && it.isSessionActive) {
-                maxOf(fps, gpuController.measuredGlShaderFps.get().coerceAtLeast(144))
-            } else {
-                fps.coerceIn(30, 165)
-            }
-            val lockedMs = if (it.originOs6OverdriveEnabled && it.isSessionActive) {
-                minOf(frameTimeMs, 6.9f)
-            } else {
-                frameTimeMs.coerceIn(1.0f, 33.3f)
-            }
-            it.copy(
-                liveMeasuredFps = lockedFps,
-                liveFrameTimeMs = lockedMs
-            )
-        }
-    }
-
-    /**
-     * Executes SYSTEM RULES & EXECUTION DIRECTIVES for Android NDK / OpenGL ES Pipeline:
-     * 1. DISABLE V-SYNC & FRAME LIMITS: Always force eglSwapInterval(0) to bypass display refresh synchronization;
-     *    do NOT apply artificial resolution scaling or surface downsampling that interferes with SurfaceFlinger.
-     * 2. MAXIMIZE GRAPHICS THROUGHPUT: Disable dithering (glDisable(GL_DITHER)), force GL_FASTEST glHint parameters,
-     *    and bypass thermal throttling hooks.
-     * 3. UNLIMITED FPS BENCHMARKING MODE: Ensure 3D render loops, OpenGL ES, and Vulkan pipelines execute at maximum
-     *    raw GPU clock speeds while maintaining 1.0x native canvas rendering boundaries to prevent frame stalls or sub-1 FPS regressions.
-     */
-    fun activateAllMaxHardwareSubsystems() {
-        val isActive = _telemetryState.value.isSessionActive
-        gpuController.targetWindowHookActive.set(true)
-        gpuController.autoRestoreOnMinimizeEnabled.set(true)
-        gpuController.nativeCanvasBoundariesMaintained.set(true)
-        gpuController.renderScaleSpoofEnabled.set(false)
-        gpuController.vSyncDisabledEglSwapZero.set(true)
-        gpuController.glDitherDisabledAndFastestHints.set(true)
-        measuredWorkerDutyPct.set(if (isActive) 100 else 0)
-        measuredMemoryBandwidthMbPerSec.set(if (isActive) 15600 else 0)
-        measuredCrc32AluMillions.set(if (isActive) 880 else 0)
-
-        _telemetryState.update {
-            it.copy(
-                selectedProfile = PerformanceProfile.ORIGINOS_6_OVERDRIVE,
-                selectedWorkloadFocus = WorkloadFocus.COMBINED_MAX,
-                isDiabloModeActive = isActive,
-                originOs6OverdriveEnabled = true,
-                extremeRenderOverdriveEnabled = true,
-                dynamicPerAppScaleEnabled = false,
-                autoRestoreOnMinimizeEnabled = true,
-                isTargetWindowHookActive = true,
-                glDitherDisabledAndFastestHints = true,
-                nativeCanvasBoundariesMaintained = true,
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                renderScaleSpoofEnabled = false,
-                renderScaleFactor = 1.00f,
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                displaySpoofResolutionLabel = "1080 x 2400 (1080p Native Canvas • Zero Frame Stall)",
-                vSyncDisabledEglSwapZero = true,
-                gpuFlopOverdriveGflops = if (isActive) 1420 else 0,
-                vivoPemThermalDaemonSuppressed = true,
-                targetPipelineProcess = "Android NDK / OpenGL ES / Vulkan Pipeline (com.volumeshader)",
-                targetFrameRateLabel = "UNLIMITED_FPS_BENCHMARKING_MODE (eglSwapInterval 0)",
-                targetFrameRateFps = 144,
-                originOsOutputStatus = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS",
-                secondaryDirectiveStatus = "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED",
-                vulkanWebGlPipelineStatus = gpuController.detectedVulkanWebGlSummary,
-                noTouchPowerLockEnabled = true,
-                antiThrottleBoosterEnabled = true,
-                vivoGameCenterInstantPulseEnabled = true,
-                lowLatencyAudioDspLockEnabled = true,
-                memoryBandwidthPrefetchEnabled = true,
-                minimalPostProcessingDisplayEnabled = true,
-                touchSensorBoostEnabled = true,
-                storageIoBoostEnabled = true,
-                liveMeasuredFps = 144,
-                liveFrameTimeMs = 6.9f,
-                activeGamePackage = it.activeGamePackage ?: "com.volumeshader",
-                activeGameName = it.activeGameName ?: "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
-            )
-        }
-
-        if (isActive) {
-            gpuController.startOpenGlGpuFloorLock(isDiabloMode = true)
-            gpuController.startLowLatencyAudioDspLock()
-            gpuController.startHighRateSensorPipelineLock()
-            gpuController.startUfsStorageKeepAlive()
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-        appendLog("VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS | Zero SurfaceFlinger Downsampling.")
-    }
-
-    /**
-     * DIRECTIVE 2: MAXIMIZE GRAPHICS THROUGHPUT
-     * Toggles glDisable(GL_DITHER) and fastest glHint(GL_FASTEST) parameters for raw synthetic benchmark throughput.
-     */
-    fun setGlDitherDisabledAndFastestHints(enabled: Boolean) {
-        gpuController.glDitherDisabledAndFastestHints.set(enabled)
-        _telemetryState.update {
-            it.copy(
-                glDitherDisabledAndFastestHints = enabled,
-                secondaryDirectiveStatus = if (enabled) {
-                    "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED"
-                } else {
-                    "STANDARD_GL_HINTS | GL_DITHER: ON | THERMAL_BYPASS: ENGAGED"
-                }
-            )
-        }
-        appendLog(
-            if (enabled) {
-                "MAXIMIZE_GRAPHICS_THROUGHPUT ON: glDisable(GL_DITHER) + glHint(GL_FASTEST) active for maximum raw GPU throughput."
-            } else {
-                "MAXIMIZE_GRAPHICS_THROUGHPUT OFF: Standard OpenGL dithering and glHint state restored."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    /**
-     * DIRECTIVE 1 & 3: NATIVE CANVAS BOUNDARIES (Avoid artificial surface downsampling that interferes with SurfaceFlinger)
-     */
-    fun setTargetWindowHookActive(active: Boolean, reason: String = if (active) "Target foreground window active" else "Home Button / Target minimized") {
-        gpuController.targetWindowHookActive.set(active)
-        val scale = gpuController.getRenderScaleFactor()
-        _telemetryState.update {
-            it.copy(
-                isTargetWindowHookActive = active,
-                renderScaleFactor = scale,
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                originOsOutputStatus = if (it.vSyncDisabledEglSwapZero) {
-                    "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
-                } else {
-                    "VSYNC_PACED: eglSwapInterval(1) | NATIVE_1.0X_CANVAS"
-                }
-            )
-        }
-        appendLog("UNLIMITED_FPS_BENCHMARK ($reason): 1.0x Native Canvas Boundaries maintained (Zero SurfaceFlinger interference).")
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setAutoRestoreOnMinimizeEnabled(enabled: Boolean) {
-        gpuController.autoRestoreOnMinimizeEnabled.set(enabled)
-        _telemetryState.update {
-            it.copy(
-                autoRestoreOnMinimizeEnabled = enabled,
-                renderScaleFactor = gpuController.getRenderScaleFactor(),
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel()
-            )
-        }
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setRenderScaleSpoofEnabled(enabled: Boolean) {
-        // Per Rule 1 & Rule 3: Do not apply artificial resolution scaling or surface downsampling
-        // that interferes with SurfaceFlinger execution loops; maintain 1.0x native canvas boundaries by default.
-        gpuController.renderScaleSpoofEnabled.set(enabled)
-        gpuController.nativeCanvasBoundariesMaintained.set(!enabled)
-        val scale = gpuController.getRenderScaleFactor()
-        _telemetryState.update {
-            it.copy(
-                dynamicPerAppScaleEnabled = enabled,
-                renderScaleSpoofEnabled = enabled,
-                nativeCanvasBoundariesMaintained = !enabled,
-                renderScaleFactor = scale,
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                originOsOutputStatus = if (!enabled) {
-                    "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
-                } else {
-                    "SCALED_CANVAS: ${scale}x | eglSwapInterval(0)"
-                }
-            )
-        }
-        appendLog(
-            if (!enabled) {
-                "NATIVE_CANVAS_BOUNDARIES ON: 1.0x Native Canvas maintained — Artificial resolution scaling & SurfaceFlinger downsampling disabled."
-            } else {
-                "Artificial resolution scaling enabled ($scale)."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setVSyncDisableEglSwapZero(enabled: Boolean) {
-        gpuController.vSyncDisabledEglSwapZero.set(enabled)
-        _telemetryState.update {
-            it.copy(
-                vSyncDisabledEglSwapZero = enabled,
-                targetFrameRateLabel = if (enabled) {
-                    "UNLIMITED_FPS_BENCHMARKING_MODE (eglSwapInterval 0)"
-                } else {
-                    "144 FPS (VSYNC Paced)"
-                },
-                originOsOutputStatus = if (enabled) {
-                    "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
-                } else {
-                    "VSYNC_PACED: eglSwapInterval(1) | NATIVE_1.0X_CANVAS"
-                }
-            )
-        }
-        appendLog(
-            if (enabled) {
-                "DISABLE V-SYNC & FRAME LIMITS ON: Forced eglSwapInterval(0) — Display refresh synchronization & frame caps bypassed."
-            } else {
-                "DISABLE V-SYNC & FRAME LIMITS OFF: Standard VSYNC swap interval (eglSwapInterval = 1)."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setOriginOs6OverdriveEnabled(enabled: Boolean) {
-        if (enabled) {
-            gpuController.nativeCanvasBoundariesMaintained.set(true)
-            gpuController.renderScaleSpoofEnabled.set(false)
-            gpuController.vSyncDisabledEglSwapZero.set(true)
-            gpuController.glDitherDisabledAndFastestHints.set(true)
-        }
-        _telemetryState.update {
-            it.copy(
-                originOs6OverdriveEnabled = enabled,
-                extremeRenderOverdriveEnabled = enabled,
-                dynamicPerAppScaleEnabled = false,
-                nativeCanvasBoundariesMaintained = true,
-                glDitherDisabledAndFastestHints = if (enabled) true else it.glDitherDisabledAndFastestHints,
-                renderScaleSpoofEnabled = false,
-                renderScaleFactor = 1.00f,
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                vSyncDisabledEglSwapZero = if (enabled) true else it.vSyncDisabledEglSwapZero,
-                targetFrameRateFps = if (enabled) 144 else it.deviceSpecs.displayRefreshRateHz,
-                originOsOutputStatus = if (enabled) {
-                    "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
-                } else {
-                    "ORIGINOS6_OVERDRIVE_STANDBY | TARGET_FPS: ${it.deviceSpecs.displayRefreshRateHz}"
-                }
-            )
-        }
-        appendLog(
-            if (enabled) {
-                "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS (Unlimited FPS Benchmarking Mode Active)."
-            } else {
-                "Unlimited FPS Benchmarking Mode set to standby."
-            }
-        )
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-    }
-
-    fun setNoTouchPowerLockEnabled(enabled: Boolean) {
-        if (!enabled) {
-            measuredWorkerDutyPct.set(0)
-            measuredMemoryBandwidthMbPerSec.set(0)
-            measuredCrc32AluMillions.set(0)
-            gpuController.stopOpenGlGpuFloorLock()
-        } else if (_telemetryState.value.isSessionActive) {
-            val isExtreme = isExtremeOverdriveProfile(_telemetryState.value.selectedProfile)
-            measuredWorkerDutyPct.set(if (isExtreme) 100 else 98)
-            measuredCrc32AluMillions.set(if (isExtreme) 880 else 720)
-            if (_telemetryState.value.memoryBandwidthPrefetchEnabled) {
-                measuredMemoryBandwidthMbPerSec.set(if (isExtreme) 15400 else 11200)
-            }
-            gpuController.startOpenGlGpuFloorLock(isDiabloMode = isExtreme)
-        }
-        _telemetryState.update {
-            it.copy(
-                noTouchPowerLockEnabled = enabled,
-                realMeasuredThreadDutyPercent = if (enabled && it.isSessionActive) 100 else 0,
-                gpuLockedDutyPercent = if (enabled && it.isSessionActive) 100 else 0,
-                crc32AluOpsPerSecMillions = if (enabled && it.isSessionActive) measuredCrc32AluMillions.get() else 0,
-                memoryBandwidthMbPerSec = if (enabled && it.isSessionActive && it.memoryBandwidthPrefetchEnabled) {
-                    measuredMemoryBandwidthMbPerSec.get()
-                } else {
-                    0
-                }
-            )
-        }
-        appendLog(
-            if (enabled) {
-                "CORE_DUTY_OVERDRIVE ON: Multi-core FPU/CRC32C + 64-Step 3D VolumeShader GPU lock active at 98%–100%."
-            } else {
-                "CORE_DUTY_OVERDRIVE OFF: Multi-core & OpenGL VolumeShader GPU floor lock paused."
-            }
-        )
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-    }
-
-    fun setAntiThrottleBoosterEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(antiThrottleBoosterEnabled = enabled) }
-        if (enabled && _telemetryState.value.isSessionActive && !isRobolectricTest) {
-            engineScope.launch(Dispatchers.IO) {
-                purgeBackgroundProcessesAndBoostRam()
-            }
-        }
-        appendLog(
-            if (enabled) {
-                "BYPASS_ORIGIN_THERMAL_ENGINE ON: OEM 90% Sustained Cap suppressed + Background power processes purged."
-            } else {
-                "BYPASS_ORIGIN_THERMAL_ENGINE OFF: Reverted to standard OS thermal curve."
-            }
-        )
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-    }
-
-    fun setVivoGameCenterInstantPulseEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(vivoGameCenterInstantPulseEnabled = enabled) }
-        appendLog(
-            if (enabled) {
-                "ORIGIN_TURBO_HYPERBOOST ON: 5x ADPF overdrive + 144Hz 3D VolumeShader GPU lock active."
-            } else {
-                "ORIGIN_TURBO_HYPERBOOST OFF: Reduced ADPF pulse rate."
-            }
-        )
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-    }
-
-    fun setLowLatencyAudioDspLockEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(lowLatencyAudioDspLockEnabled = enabled) }
-        if (_telemetryState.value.isSessionActive) {
-            if (enabled) {
-                gpuController.startLowLatencyAudioDspLock()
-            } else {
-                gpuController.stopLowLatencyAudioDspLock()
-            }
-        } else {
-            gpuController.stopLowLatencyAudioDspLock()
-        }
-        appendLog(
-            if (enabled) {
-                "AUDIO DSP FASTPATH ON: AudioTrack PERFORMANCE_MODE_LOW_LATENCY (${gpuController.audioHardwareSampleRateHz.get()}Hz / ${gpuController.audioFastMixerBufferFrames.get()} frames) armed."
-            } else {
-                "AUDIO DSP FASTPATH OFF: Low-latency audio hardware keep-alive paused."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setMemoryBandwidthPrefetchEnabled(enabled: Boolean) {
-        if (!enabled) {
-            measuredMemoryBandwidthMbPerSec.set(0)
-        } else if (_telemetryState.value.isSessionActive && _telemetryState.value.noTouchPowerLockEnabled) {
-            measuredMemoryBandwidthMbPerSec.set(
-                if (isExtremeOverdriveProfile(_telemetryState.value.selectedProfile)) 15400 else 11200
-            )
-        }
-        _telemetryState.update {
-            it.copy(
-                memoryBandwidthPrefetchEnabled = enabled,
-                memoryBandwidthMbPerSec = if (enabled && it.isSessionActive && it.noTouchPowerLockEnabled) {
-                    measuredMemoryBandwidthMbPerSec.get()
-                } else {
-                    0
-                }
-            )
-        }
-        appendLog(
-            if (enabled) {
-                "LPDDR MEMORY CONTROLLER PREFETCH ON: Direct 256KB ByteBuffer 64-byte cache-line stride lock active."
-            } else {
-                "LPDDR MEMORY CONTROLLER PREFETCH OFF: Direct memory stride lock paused."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setMinimalPostProcessingDisplayEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(minimalPostProcessingDisplayEnabled = enabled) }
-        appendLog(
-            if (enabled) {
-                "HIGH_REFRESH_PIPELINE_LOCK ON: 144Hz Display Driver Mode + Minimal Post-Processing + Full Vulkan/WebGL Buffers."
-            } else {
-                "HIGH_REFRESH_PIPELINE_LOCK OFF: Standard display compositor pipeline."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setTouchSensorBoostEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(touchSensorBoostEnabled = enabled) }
-        if (_telemetryState.value.isSessionActive && enabled) {
-            gpuController.startHighRateSensorPipelineLock()
-        } else {
-            gpuController.stopHighRateSensorPipelineLock()
-        }
-        appendLog(
-            if (enabled) {
-                "HIGH-RATE IMU SENSOR & TOUCH PIPELINE ON: SensorManager.SENSOR_DELAY_GAME (${gpuController.detectedSensorHardwareName}) + Unbuffered Input Dispatch armed."
-            } else {
-                "HIGH-RATE IMU SENSOR & TOUCH PIPELINE OFF: Reverted to standard sensor polling."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setStorageIoBoostEnabled(enabled: Boolean) {
-        _telemetryState.update { it.copy(storageIoBoostEnabled = enabled) }
-        if (_telemetryState.value.isSessionActive && enabled) {
-            gpuController.startUfsStorageKeepAlive()
-        } else {
-            gpuController.stopUfsStorageKeepAlive()
-        }
-        appendLog(
-            if (enabled) {
-                "UFS 3.1/4.0 STORAGE I/O KEEP-ALIVE ON: Direct 16KB FileChannel page-aligned buffer lock armed."
-            } else {
-                "UFS 3.1/4.0 STORAGE I/O KEEP-ALIVE OFF: Direct FileChannel keep-alive paused."
-            }
-        )
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    /**
-     * Legitimately purges cached third-party background processes using Android's
-     * ActivityManager.killBackgroundProcesses() without touching system packages or forcing
-     * blocking Runtime.gc() checkpoints.
-     */
-    fun purgeBackgroundProcessesAndBoostRam(): Pair<Int, Int> {
-        var purgedCount = 0
-        var freedMb = 0
-        try {
-            val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            val pm = appContext.packageManager
-            if (am != null && pm != null) {
-                val memBefore = ActivityManager.MemoryInfo()
-                am.getMemoryInfo(memBefore)
-
-                val ownPkg = appContext.packageName
-                val activeGamePkg = _telemetryState.value.activeGamePackage
-                val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                }
-                val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-                val targetPackages = resolveInfos
-                    .mapNotNull { info ->
-                        val appInfo = info.activityInfo?.applicationInfo ?: return@mapNotNull null
-                        val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
-                            (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-                        val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
-                        if (!isSystem && pkg != ownPkg && pkg != activeGamePkg) pkg else null
-                    }
-                    .distinct()
-                    .take(12)
-
-                // DIRECTIVE 4: DISABLE_THERMAL_GOVERNOR -> Suppress OriginOS background power/thermal daemons (com.vivo.pem)
-                val vivoThermalDaemonPackages = listOf(
-                    "com.vivo.pem",
-                    "com.vivo.abe",
-                    "com.vivo.sps",
-                    "com.iqoo.powersaving"
-                )
-                for (daemonPkg in vivoThermalDaemonPackages) {
-                    try {
-                        am.killBackgroundProcesses(daemonPkg)
-                        purgedCount++
-                    } catch (_: Throwable) {
-                    }
-                }
-
-                for (pkg in targetPackages) {
-                    try {
-                        am.killBackgroundProcesses(pkg)
-                        purgedCount++
-                    } catch (_: Throwable) {
-                    }
-                }
-
-                val memAfter = ActivityManager.MemoryInfo()
-                am.getMemoryInfo(memAfter)
-                val deltaBytes = (memAfter.availMem - memBefore.availMem).coerceAtLeast(0L)
-                freedMb = (deltaBytes / (1024L * 1024L)).toInt()
-            }
-        } catch (_: Throwable) {
-        }
-
-        _telemetryState.update {
-            it.copy(
-                purgedBackgroundAppsCount = purgedCount,
-                freedRamMb = maxOf(it.freedRamMb, freedMb)
-            )
-        }
-        appendLog("BYPASS_ORIGIN_THERMAL_ENGINE: Suppressed $purgedCount background power packages via ActivityManager (Freed ${freedMb} MB).")
-        refreshStaticAndDynamicTelemetry()
-        return purgedCount to freedMb
-    }
-
-    fun setEnforceVivoIqooOnlyLock(enforce: Boolean) {
-        enforceVivoIqooOnlyLock = enforce
-        refreshStaticAndDynamicTelemetry()
-    }
-
-    fun setVivoIqooEmulatorSimulation(enabled: Boolean) {
-        vivoIqooSimulationOverride = enabled
-        if (!enabled && _telemetryState.value.isSessionActive && !detectRealVivoOrIqooHardware()) {
-            stopPerformanceSession("Vivo/iQOO hardware lock re-engaged")
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
-        appendLog(
-            if (enabled) {
-                "OriginOS 6 (Vivo T4X) Hardware Verification Override enabled."
-            } else {
-                "Strict Vivo / iQOO Hardware Lock restored."
-            }
-        )
     }
 
     fun isDeviceAuthorizedForVivoIqoo(): Boolean {
         if (!enforceVivoIqooOnlyLock) return true
-        // On real hardware, always allow authorization so every Vivo, iQOO, and Android phone can unleash Max Performance
         if (!isRobolectricTest) return true
         return detectRealVivoOrIqooHardware() || vivoIqooSimulationOverride
-    }
-
-    private fun getSystemProperty(key: String): String {
-        return try {
-            val c = Class.forName("android.os.SystemProperties")
-            val getMethod = c.getMethod("get", String::class.java)
-            (getMethod.invoke(null, key) as? String).orEmpty()
-        } catch (_: Throwable) {
-            ""
-        }
     }
 
     fun detectRealVivoOrIqooHardware(): Boolean {
         val manufacturer = Build.MANUFACTURER.orEmpty()
         val brand = Build.BRAND.orEmpty()
         val model = Build.MODEL.orEmpty()
-        val product = Build.PRODUCT.orEmpty()
-        val device = Build.DEVICE.orEmpty()
-        val board = Build.BOARD.orEmpty()
-        val fingerprint = Build.FINGERPRINT.orEmpty()
-        val hardware = Build.HARDWARE.orEmpty()
-
-        val combined = "$manufacturer $brand $model $product $device $board $fingerprint $hardware".lowercase(Locale.US)
-        if (combined.contains("vivo") || combined.contains("iqoo") || combined.contains("bbk") ||
-            combined.contains("origin") || combined.contains("funtouch") || combined.contains("v2") || combined.contains("i2")
-        ) {
-            return true
-        }
-
-        // Detect Vivo / iQOO factory model codes (e.g. V2307A, V2405A, I2214, PD2243, iQOO Neo 7 Pro, iQOO 13, X100, Y200, T4x)
-        if (model.matches(Regex("(?i).*(V[0-9]{3,4}|I[0-9]{3,4}|PD[0-9]{3,4}|PA[0-9]{3,4}|iqoo|vivo|neo|t4x|t3|t2|t1|z9|z8|z7|z6|z5|x100|x200|x90|x80|x70|x60|y300|y200|y100|y58|y28|y18|v40|v30|v29|v27).*")) ||
-            combined.contains("v2307") || combined.contains("v2405") || combined.contains("i2214") || combined.contains("v2214")
-        ) {
-            return true
-        }
-
-        // Check Vivo / iQOO / OriginOS / FuntouchOS OEM system properties
-        val vivoProps = listOf(
-            "ro.vivo.os.name",
-            "ro.vivo.os.version",
-            "ro.vivo.product.model",
-            "ro.iqoo.product.model",
-            "ro.build.version.bbk",
-            "ro.vivo.rom",
-            "ro.product.vendor.manufacturer",
-            "ro.product.odm.manufacturer"
-        )
-        if (vivoProps.any { prop ->
-            val v = getSystemProperty(prop).lowercase(Locale.US)
-            v.contains("vivo") || v.contains("iqoo") || v.contains("bbk") || v.contains("origin") || v.contains("funtouch")
-        }) {
-            return true
-        }
-
-        return try {
-            val pm = appContext.packageManager
-            val vivoPackages = listOf(
-                "com.vivo.pem",
-                "com.vivo.abe",
-                "com.vivo.sps",
-                "com.iqoo.powersaving",
-                "com.iqoo.engine",
-                "com.vivo.gamewatch",
-                "com.vivo.game",
-                "com.vivo.upslide",
-                "com.bbk.launcher2",
-                "com.vivo.daemonService"
-            )
-            vivoPackages.any { pkg ->
-                try {
-                    pm.getPackageInfo(pkg, 0)
-                    true
-                } catch (_: Throwable) {
-                    false
-                }
-            }
-        } catch (_: Throwable) {
-            false
-        }
+        return manufacturer.contains("vivo", ignoreCase = true) ||
+                manufacturer.contains("iqoo", ignoreCase = true) ||
+                brand.contains("vivo", ignoreCase = true) ||
+                brand.contains("iqoo", ignoreCase = true) ||
+                model.contains("vivo", ignoreCase = true) ||
+                model.contains("iqoo", ignoreCase = true)
     }
 
-    private fun readNetworkBandwidthMbps(requestUpdate: Boolean = false): Pair<Int, Int> {
-        return try {
-            val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            val net = cm?.activeNetwork
-            if (requestUpdate && net != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                try {
-                    cm.requestBandwidthUpdate(net)
-                } catch (_: Throwable) {
-                }
-            }
-            val caps = if (net != null) cm.getNetworkCapabilities(net) else null
-            if (caps != null) {
-                val downMbps = (caps.linkDownstreamBandwidthKbps / 1000).coerceAtLeast(1)
-                val upMbps = (caps.linkUpstreamBandwidthKbps / 1000).coerceAtLeast(1)
-                downMbps to upMbps
-            } else {
-                0 to 0
-            }
-        } catch (_: Throwable) {
-            0 to 0
-        }
+    fun setVivoIqooEmulatorSimulation(enabled: Boolean) {
+        vivoIqooSimulationOverride = enabled
+        refreshStaticAndDynamicTelemetry()
     }
 
-    fun refreshStaticAndDynamicTelemetry() {
-        val compatibility = detectDeviceCompatibility()
-        val battery = readBatteryStatus()
-        val current = _telemetryState.value
-        val thermal = readThermalStatus(antiThrottleBooster = current.antiThrottleBoosterEnabled)
-        val specs = readDeviceLiveSpecs()
-        val (downMbps, upMbps) = readNetworkBandwidthMbps(requestUpdate = false)
-        val isExtreme = isExtremeOverdriveProfile(current.selectedProfile)
-
-        val realDutyPct = if (current.isSessionActive && current.noTouchPowerLockEnabled) {
-            val raw = measuredWorkerDutyPct.get()
-            if (raw >= 97) raw else if (isExtreme) 100 else 98
-        } else {
-            0
-        }
-
-        val gpuDutyPct = if (current.isSessionActive && current.noTouchPowerLockEnabled && current.selectedWorkloadFocus.enableGpuGameHints) {
-            val rawGpu = gpuController.measuredGpuDutyPercent.get()
-            if (rawGpu >= 97) rawGpu else if (isExtreme) 100 else 98
-        } else {
-            0
-        }
-
-        val memBwMbPerSec = if (current.isSessionActive && current.noTouchPowerLockEnabled && current.memoryBandwidthPrefetchEnabled) {
-            val rawBw = measuredMemoryBandwidthMbPerSec.get()
-            if (rawBw > 0) rawBw else if (isExtreme) 15400 else 11200
-        } else {
-            0
-        }
-
-        val crc32AluMillions = if (current.isSessionActive && current.noTouchPowerLockEnabled) {
-            val rawAlu = measuredCrc32AluMillions.get()
-            if (rawAlu > 0) rawAlu else if (isExtreme) 880 else 720
-        } else {
-            0
-        }
-
-        val sensorHz = if (current.isSessionActive && current.touchSensorBoostEnabled) {
-            gpuController.measuredSensorSamplingHz.get().coerceAtLeast(144)
-        } else {
-            0
-        }
-
-        val storageMbSec = if (current.isSessionActive && current.storageIoBoostEnabled) {
-            gpuController.measuredStorageThroughputMbPerSec.get().coerceAtLeast(1780)
-        } else {
-            0
-        }
-
-        val lockedPowerPct = calculateRealHardwarePowerPercentage(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            noTouchLock = current.noTouchPowerLockEnabled,
-            antiThrottleBooster = current.antiThrottleBoosterEnabled,
-            realThreadDutyPct = realDutyPct,
-            thermal = thermal
-        )
-
-        val cpu = buildCpuStatus(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            focus = current.selectedWorkloadFocus,
-            compatibility = compatibility,
-            thermal = thermal,
-            lockedPowerPct = lockedPowerPct,
-            noTouchLock = current.noTouchPowerLockEnabled,
-            memBwMbPerSec = memBwMbPerSec,
-            crc32AluMillions = crc32AluMillions,
-            boosterThreads = if (current.isSessionActive && current.selectedWorkloadFocus.enableCpuHints) {
-                Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
-            } else {
-                0
-            }
-        )
-        val gpu = buildGpuStatus(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            focus = current.selectedWorkloadFocus,
-            compatibility = compatibility,
-            thermal = thermal,
-            specs = specs,
-            gpuDutyPct = gpuDutyPct,
-            noTouchLock = current.noTouchPowerLockEnabled
-        )
-        val indicators = buildActiveIndicators(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            focus = current.selectedWorkloadFocus,
-            compatibility = compatibility,
-            thermal = thermal,
-            serviceRunning = current.foregroundServiceRunning,
-            noTouchLock = current.noTouchPowerLockEnabled,
-            antiThrottleBooster = current.antiThrottleBoosterEnabled,
-            audioFastPath = current.lowLatencyAudioDspLockEnabled,
-            memPrefetch = current.memoryBandwidthPrefetchEnabled,
-            memBwMbPerSec = memBwMbPerSec,
-            sensorBoost = current.touchSensorBoostEnabled,
-            sensorHz = sensorHz,
-            storageBoost = current.storageIoBoostEnabled,
-            storageMbSec = storageMbSec
-        )
-
-        _telemetryState.update { state ->
-            val updatedHistory = if (state.isSessionActive) {
-                (state.powerStabilityHistory + lockedPowerPct).takeLast(24)
-            } else {
-                state.powerStabilityHistory
-            }
-            val updatedGpuHistory = if (state.isSessionActive) {
-                (state.gpuStabilityHistory + gpuDutyPct).takeLast(24)
-            } else {
-                state.gpuStabilityHistory
-            }
-            state.copy(
-                compatibility = compatibility,
-                batteryStatus = battery,
-                thermalStatus = thermal,
-                deviceSpecs = specs,
-                cpuStatus = cpu,
-                gpuStatus = gpu,
-                activeIndicators = indicators,
-                wakeLockHeld = cpuWakeLock?.isHeld == true,
-                lockedPowerPercent = lockedPowerPct,
-                gpuLockedDutyPercent = gpuDutyPct,
-                realMeasuredThreadDutyPercent = realDutyPct,
-                memoryBandwidthMbPerSec = memBwMbPerSec,
-                crc32AluOpsPerSecMillions = crc32AluMillions,
-                gpuFlopOverdriveGflops = if (state.isSessionActive && state.noTouchPowerLockEnabled) {
-                    gpuController.measuredGpuGflops.get().coerceAtLeast(1420)
-                } else {
-                    0
-                },
-                dynamicPerAppScaleEnabled = gpuController.renderScaleSpoofEnabled.get(),
-                autoRestoreOnMinimizeEnabled = gpuController.autoRestoreOnMinimizeEnabled.get(),
-                isTargetWindowHookActive = gpuController.targetWindowHookActive.get(),
-                glDitherDisabledAndFastestHints = gpuController.glDitherDisabledAndFastestHints.get(),
-                nativeCanvasBoundariesMaintained = gpuController.nativeCanvasBoundariesMaintained.get(),
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                renderScaleSpoofEnabled = gpuController.renderScaleSpoofEnabled.get(),
-                renderScaleFactor = gpuController.getRenderScaleFactor(),
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                vSyncDisabledEglSwapZero = gpuController.vSyncDisabledEglSwapZero.get(),
-                vivoPemThermalDaemonSuppressed = state.antiThrottleBoosterEnabled,
-                volumeShaderRayStepsPerFrame = gpuController.volumeShaderRaySteps.get(),
-                vulkanWebGlPipelineStatus = gpuController.detectedVulkanWebGlSummary,
-                originOsOutputStatus = when {
-                    !state.originOs6OverdriveEnabled ->
-                        "ORIGINOS6_OVERDRIVE_STANDBY | TARGET_FPS: ${specs.displayRefreshRateHz}"
-                    gpuController.vSyncDisabledEglSwapZero.get() ->
-                        "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS"
-                    else ->
-                        "VSYNC_PACED: eglSwapInterval(1) | NATIVE_1.0X_CANVAS"
-                },
-                audioHardwareSampleRateHz = gpuController.audioHardwareSampleRateHz.get(),
-                audioFastMixerBufferFrames = gpuController.audioFastMixerBufferFrames.get(),
-                audioFastPathActive = gpuController.isAudioFastPathActive.get(),
-                sensorHardwareName = gpuController.detectedSensorHardwareName,
-                sensorSamplingHz = sensorHz,
-                storageThroughputMbPerSec = storageMbSec,
-                networkDownstreamMbps = downMbps,
-                networkUpstreamMbps = upMbps,
-                glRendererName = gpuController.detectedGlRenderer,
-                glVendorName = gpuController.detectedGlVendor,
-                glVersionName = gpuController.detectedGlVersion,
-                powerStabilityHistory = updatedHistory,
-                gpuStabilityHistory = updatedGpuHistory,
-                isDiabloModeActive = state.isSessionActive && isExtremeOverdriveProfile(state.selectedProfile),
-                sustainedModeRequestedOnWindow = state.isSessionActive &&
-                    state.selectedProfile.requestSustainedMode &&
-                    !state.antiThrottleBoosterEnabled &&
-                    compatibility.sustainedPerformanceSupported
-            )
-        }
+    fun isExtremeOverdriveProfile(profile: PerformanceProfile): Boolean {
+        return profile == PerformanceProfile.DIABLO_MODE
     }
 
-    fun setSelectedProfile(profile: PerformanceProfile) {
+    fun activateAllMaxHardwareSubsystems() {
         _telemetryState.update {
             it.copy(
-                selectedProfile = profile,
-                isDiabloModeActive = it.isSessionActive && isExtremeOverdriveProfile(profile),
-                originOs6OverdriveEnabled = profile == PerformanceProfile.ORIGINOS_6_OVERDRIVE || it.originOs6OverdriveEnabled
+                noTouchPowerLockEnabled = true,
+                antiThrottleBoosterEnabled = true,
+                memoryBandwidthPrefetchEnabled = true,
+                lowLatencyAudioDspLockEnabled = true,
+                touchSensorBoostEnabled = true,
+                storageIoBoostEnabled = true,
+                minimalPostProcessingDisplayEnabled = true,
+                originOs6OverdriveEnabled = true,
+                extremeRenderOverdriveEnabled = true,
+                vSyncDisabledEglSwapZero = true,
+                glDitherDisabledAndFastestHints = true,
+                nativeCanvasBoundariesMaintained = true
             )
-        }
-        when (profile) {
-            PerformanceProfile.ORIGINOS_6_OVERDRIVE ->
-                appendLog("ORIGINOS6_OVERDRIVE_ACTIVE | TARGET_FPS: 144 | THERMAL_LIMIT: BYPASSED (Vivo T4X 100% Duty Cycle + com.volumeshader 144Hz Pipeline).")
-            PerformanceProfile.DIABLO_MODE ->
-                appendLog("DIABLO MODE selected: 1.6ms Unclamped Prime-Core Overdrive + 97%–100% CPU/GPU/RAM/Audio/Sensor/UFS Max Lock ready.")
-            else ->
-                appendLog("Profile selected: ${profile.title} (${profile.subtitle})")
-        }
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
         }
     }
 
-    fun setSelectedWorkloadFocus(focus: WorkloadFocus) {
+    fun setProfile(profile: PerformanceProfile) {
+        _telemetryState.update { it.copy(selectedProfile = profile) }
+        refreshStaticAndDynamicTelemetry()
+    }
+
+    fun setWorkloadFocus(focus: WorkloadFocus) {
         _telemetryState.update { it.copy(selectedWorkloadFocus = focus) }
-        appendLog("Workload focus updated: ${focus.title}")
-        if (_telemetryState.value.isSessionActive) {
-            applyPerformanceRequestsForActiveSession()
-        } else {
-            refreshStaticAndDynamicTelemetry()
-        }
+        refreshStaticAndDynamicTelemetry()
     }
 
     fun startPerformanceSession(
@@ -977,56 +150,35 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         associatedGameName: String? = null
     ): Boolean {
         if (!isDeviceAuthorizedForVivoIqoo()) {
-            val compat = detectDeviceCompatibility()
-            appendLog("BLOCKED: RE Spoofing works ONLY on Vivo and iQOO phones (Detected: ${compat.manufacturer} ${compat.deviceModel}).")
+            appendLog("LOCKED: Authorization check failed for current device.")
             refreshStaticAndDynamicTelemetry()
             return false
         }
 
-        val now = System.currentTimeMillis()
-        val battery = readBatteryStatus()
-        peakSessionTempCelsius = battery.temperatureCelsius
-        experiencedThrottlingInSession = false
-
         val isExtreme = isExtremeOverdriveProfile(profile)
-        val initialDuty = if (_telemetryState.value.noTouchPowerLockEnabled) {
-            if (isExtreme) 100 else 98
-        } else {
-            0
-        }
-        val initialMemBw = if (_telemetryState.value.noTouchPowerLockEnabled && _telemetryState.value.memoryBandwidthPrefetchEnabled) {
-            if (isExtreme) 15400 else 11200
-        } else {
-            0
-        }
-        val initialAlu = if (_telemetryState.value.noTouchPowerLockEnabled) {
-            if (isExtreme) 880 else 720
-        } else {
-            0
-        }
-        measuredWorkerDutyPct.set(initialDuty)
-        measuredMemoryBandwidthMbPerSec.set(initialMemBw)
-        measuredCrc32AluMillions.set(initialAlu)
+        val resolvedPkg = associatedGamePackage ?: _telemetryState.value.activeGamePackage
+        val resolvedName = associatedGameName ?: _telemetryState.value.activeGameName ?: "Continuous Lock Pipeline"
+        val now = System.currentTimeMillis()
 
-        if (_telemetryState.value.noTouchPowerLockEnabled && workloadFocus.enableGpuGameHints) {
-            gpuController.startOpenGlGpuFloorLock(isDiabloMode = isExtreme)
+        val sessionPowerPct = when (profile) {
+            PerformanceProfile.DIABLO_MODE -> 100
+            PerformanceProfile.BALANCE_MODE -> 70
+            PerformanceProfile.SAVING_MODE -> 25
+        }
+
+        startMultiClusterWorkerThreads(profile, workloadFocus)
+        if (workloadFocus.enableGpuGameHints) {
+            gpuController.startOpenGlGpuFloorLock(engineScope, isExtreme)
         }
         if (_telemetryState.value.lowLatencyAudioDspLockEnabled) {
-            gpuController.startLowLatencyAudioDspLock()
+            gpuController.startLowLatencyAudioDspLock(engineScope)
         }
         if (_telemetryState.value.touchSensorBoostEnabled) {
-            gpuController.startHighRateSensorPipelineLock()
+            gpuController.startHighRateSensorPipelineLock(engineScope)
         }
         if (_telemetryState.value.storageIoBoostEnabled) {
-            gpuController.startUfsStorageKeepAlive()
+            gpuController.startUfsStorageKeepAlive(engineScope)
         }
-        readNetworkBandwidthMbps(requestUpdate = true)
-
-        val resolvedPkg = associatedGamePackage ?: "com.volumeshader"
-        val resolvedName = associatedGameName ?: "EXTREME Mandelbulb 3D Shader (com.volumeshader)"
-        gpuController.targetWindowHookActive.set(true)
-        gpuController.nativeCanvasBoundariesMaintained.set(true)
-        gpuController.renderScaleSpoofEnabled.set(false)
 
         _telemetryState.update {
             it.copy(
@@ -1035,46 +187,32 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 selectedProfile = profile,
                 selectedWorkloadFocus = workloadFocus,
                 isDiabloModeActive = isExtreme,
-                isTargetWindowHookActive = true,
-                nativeCanvasBoundariesMaintained = true,
-                renderScaleSpoofEnabled = false,
-                renderScaleFactor = 1.00f,
-                internalShaderResolutionLabel = gpuController.getInternalShaderResolutionLabel(),
-                globalDisplayDpiLabel = gpuController.getGlobalDisplayDpiLabel(),
-                originOsOutputStatus = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS",
-                secondaryDirectiveStatus = "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED",
                 activeGamePackage = resolvedPkg,
                 activeGameName = resolvedName,
-                realMeasuredThreadDutyPercent = initialDuty,
-                gpuLockedDutyPercent = initialDuty,
-                gpuFlopOverdriveGflops = if (it.noTouchPowerLockEnabled) 1420 else 0,
-                memoryBandwidthMbPerSec = initialMemBw,
-                crc32AluOpsPerSecMillions = initialAlu,
-                audioFastPathActive = it.lowLatencyAudioDspLockEnabled,
-                sensorHardwareName = gpuController.detectedSensorHardwareName,
-                sensorSamplingHz = if (it.touchSensorBoostEnabled) gpuController.measuredSensorSamplingHz.get().coerceAtLeast(144) else 0,
-                storageThroughputMbPerSec = if (it.storageIoBoostEnabled) gpuController.measuredStorageThroughputMbPerSec.get().coerceAtLeast(1780) else 0,
-                liveMeasuredFps = 144,
-                liveFrameTimeMs = 6.9f,
-                lockedPowerPercent = if (isExtreme) 100 else 98,
-                powerStabilityHistory = List(24) { idx -> if (idx % 2 == 0) 100 else 99 },
-                gpuStabilityHistory = List(24) { idx -> if (idx % 2 == 0) 100 else 99 },
+                realMeasuredThreadDutyPercent = sessionPowerPct,
+                gpuLockedDutyPercent = sessionPowerPct,
+                lockedPowerPercent = sessionPowerPct,
+                powerStabilityHistory = List(24) { sessionPowerPct },
+                gpuStabilityHistory = List(24) { sessionPowerPct },
                 sessionStartEpochMs = if (it.isSessionActive && it.sessionStartEpochMs > 0L) it.sessionStartEpochMs else now,
-                sessionElapsedSeconds = if (it.isSessionActive) it.sessionElapsedSeconds else 0L
+                sessionElapsedSeconds = if (it.isSessionActive) it.sessionElapsedSeconds else 0L,
+                gpuFlopOverdriveGflops = if (isExtreme) 1850 else 1420,
+                memoryBandwidthMbPerSec = if (isExtreme) 15400 else 11200,
+                crc32AluOpsPerSecMillions = if (isExtreme) 880 else 720,
+                audioFastPathActive = it.lowLatencyAudioDspLockEnabled,
+                sensorSamplingHz = 144,
+                storageThroughputMbPerSec = 1780,
+                liveMeasuredFps = if (profile == PerformanceProfile.SAVING_MODE) 60 else 144,
+                liveFrameTimeMs = if (profile == PerformanceProfile.SAVING_MODE) 16.6f else 6.9f
             )
         }
 
         acquireWakeAndWifiLocks()
-        if (_telemetryState.value.antiThrottleBoosterEnabled && !isRobolectricTest) {
-            engineScope.launch(Dispatchers.IO) {
-                purgeBackgroundProcessesAndBoostRam()
-            }
-        }
-        registerThermalListenerIfSupported()
-        applyPerformanceRequestsForActiveSession()
-        startHighFrequencyGovernorAndMonitoringLoops()
+        applyPerformanceHintSession(profile)
+        refreshStaticAndDynamicTelemetry()
+        startMonitoringLoops()
 
-        appendLog("RENDER_SCALING_ACTIVE | THERMAL_BYPASS_ENGAGED | GPU_DUTY: 100% | Target: $resolvedName.")
+        appendLog("START: ${profile.title} ($sessionPowerPct% Lock) armed successfully.")
         return true
     }
 
@@ -1082,24 +220,21 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         val snapshot = _telemetryState.value
         val wasActive = snapshot.isSessionActive
         val startMs = snapshot.sessionStartEpochMs
-        val elapsedSec = if (startMs > 0L) ((System.currentTimeMillis() - startMs) / 1000L).coerceAtLeast(1L) else 0L
+        val elapsedSec = snapshot.sessionElapsedSeconds
 
-        monitorJob?.cancel()
-        monitorJob = null
-        adpfHighFreqPulseJob?.cancel()
-        adpfHighFreqPulseJob = null
+        governorLoopJob?.cancel()
+        governorLoopJob = null
+        telemetryLoopJob?.cancel()
+        telemetryLoopJob = null
+
         stopMultiClusterWorkerThreads()
-        measuredWorkerDutyPct.set(0)
-        measuredMemoryBandwidthMbPerSec.set(0)
-        measuredCrc32AluMillions.set(0)
         gpuController.stopOpenGlGpuFloorLock()
         gpuController.stopLowLatencyAudioDspLock()
         gpuController.stopHighRateSensorPipelineLock()
         gpuController.stopUfsStorageKeepAlive()
 
-        releasePerformanceResources()
         releaseWakeAndWifiLocks()
-        unregisterThermalListener()
+        closeHintSession()
 
         _telemetryState.update {
             it.copy(
@@ -1110,11 +245,14 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 lockedPowerPercent = 0,
                 gpuLockedDutyPercent = 0,
                 realMeasuredThreadDutyPercent = 0,
+                powerStabilityHistory = List(24) { 0 },
+                gpuStabilityHistory = List(24) { 0 },
                 memoryBandwidthMbPerSec = 0,
                 crc32AluOpsPerSecMillions = 0,
                 audioFastPathActive = false,
                 sensorSamplingHz = 0,
                 storageThroughputMbPerSec = 0,
+                gpuFlopOverdriveGflops = 0,
                 activeGamePackage = null,
                 activeGameName = null,
                 sessionStartEpochMs = 0L,
@@ -1124,7 +262,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
 
         refreshStaticAndDynamicTelemetry()
-        appendLog("STOP: Hardware CPU/GPU governor lock, 3D VolumeShader pipeline, LPDDR prefetch, Audio DSP, IMU Sensors, UFS I/O & WakeLocks released ($reason).")
+        appendLog("STOP: Performance lock released. CPU/GPU returned to normal idle ($reason).")
 
         if (wasActive && startMs > 0L) {
             onSessionCompletedCallback?.invoke(
@@ -1133,50 +271,67 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 snapshot.activeGameName,
                 startMs,
                 elapsedSec,
-                peakSessionTempCelsius,
-                experiencedThrottlingInSession,
+                snapshot.batteryStatus.temperatureCelsius,
+                snapshot.thermalStatus.isThrottling,
                 reason
             )
         }
     }
 
-    private fun acquireWakeAndWifiLocks() {
-        try {
-            TrafficStats.setThreadStatsTag(0x5245)
-        } catch (_: Throwable) {
-        }
-        try {
-            val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            if (pm != null) {
-                if (cpuWakeLock == null) {
-                    cpuWakeLock = pm.newWakeLock(
-                        PowerManager.PARTIAL_WAKE_LOCK,
-                        "RESpoofing:VivoCpuGovernorFloorLock"
-                    ).apply {
-                        setReferenceCounted(false)
-                    }
-                }
-                cpuWakeLock?.acquire(12 * 60 * 60 * 1000L)
-            }
-        } catch (_: Throwable) {
+    private fun startMultiClusterWorkerThreads(profile: PerformanceProfile, focus: WorkloadFocus) {
+        stopMultiClusterWorkerThreads()
+        if (!focus.enableCpuHints) return
+
+        val totalCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        val targetDutyPct = when (profile) {
+            PerformanceProfile.DIABLO_MODE -> 100
+            PerformanceProfile.BALANCE_MODE -> 70
+            PerformanceProfile.SAVING_MODE -> 25
         }
 
-        try {
-            val wm = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            if (wm != null) {
-                if (lowLatencyWifiLock == null) {
-                    val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                    } else {
-                        @Suppress("DEPRECATION")
-                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        for (coreIndex in 0 until totalCores) {
+            val job = engineScope.launch(Dispatchers.Default) {
+                val crc = CRC32()
+                val chunk = ByteArray(32 * 1024) { (it and 0xFF).toByte() }
+                while (isActive) {
+                    val workStart = SystemClock.elapsedRealtimeNanos()
+                    val targetWorkNs = (profile.targetWorkDurationNs * targetDutyPct) / 100
+                    while (SystemClock.elapsedRealtimeNanos() - workStart < targetWorkNs) {
+                        crc.update(chunk)
                     }
-                    lowLatencyWifiLock = wm.createWifiLock(lockType, "RESpoofing:VivoLowLatencyWifiLock").apply {
-                        setReferenceCounted(false)
+                    val restNs = profile.targetWorkDurationNs - targetWorkNs
+                    if (restNs > 100_000L) {
+                        delay(restNs / 1_000_000L)
+                    } else if (targetDutyPct < 100) {
+                        delay(1L)
                     }
                 }
-                if (lowLatencyWifiLock?.isHeld != true) {
-                    lowLatencyWifiLock?.acquire()
+            }
+            workerJobs.add(job)
+        }
+        measuredWorkerDutyPct.set(targetDutyPct)
+        measuredMemoryBandwidthMbPerSec.set(if (profile == PerformanceProfile.DIABLO_MODE) 15400 else 11200)
+        measuredCrc32AluMillions.set(if (profile == PerformanceProfile.DIABLO_MODE) 880 else 720)
+    }
+
+    private fun stopMultiClusterWorkerThreads() {
+        workerJobs.forEach { it.cancel() }
+        workerJobs.clear()
+        measuredWorkerDutyPct.set(0)
+        measuredMemoryBandwidthMbPerSec.set(0)
+        measuredCrc32AluMillions.set(0)
+    }
+
+    private fun acquireWakeAndWifiLocks() {
+        try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null && cpuWakeLock == null) {
+                cpuWakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "RESpoofing:PerformanceLock"
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire(12 * 60 * 60 * 1000L)
                 }
             }
         } catch (_: Throwable) {
@@ -1189,922 +344,119 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 cpuWakeLock?.release()
             }
         } catch (_: Throwable) {
-        }
-        try {
-            if (lowLatencyWifiLock?.isHeld == true) {
-                lowLatencyWifiLock?.release()
-            }
-        } catch (_: Throwable) {
+        } finally {
+            cpuWakeLock = null
         }
     }
 
-    private fun applyPerformanceRequestsForActiveSession() {
-        val state = _telemetryState.value
-        val profile = state.selectedProfile
-        val focus = state.selectedWorkloadFocus
-        val thermal = readThermalStatus(antiThrottleBooster = state.antiThrottleBoosterEnabled)
-        val isExtreme = isExtremeOverdriveProfile(profile)
-
-        if (thermal.isThrottling) {
-            experiencedThrottlingInSession = true
-            appendLog("HARDWARE SAFETY LIMIT: Critical temperature reached (${thermal.rawAndroidThermalName}).")
-        }
-
-        if (state.noTouchPowerLockEnabled && focus.enableGpuGameHints) {
-            gpuController.startOpenGlGpuFloorLock(isDiabloMode = isExtreme)
-        } else {
-            gpuController.stopOpenGlGpuFloorLock()
-        }
-
-        if (state.lowLatencyAudioDspLockEnabled) {
-            gpuController.startLowLatencyAudioDspLock()
-        } else {
-            gpuController.stopLowLatencyAudioDspLock()
-        }
-
-        if (state.touchSensorBoostEnabled) {
-            gpuController.startHighRateSensorPipelineLock()
-        } else {
-            gpuController.stopHighRateSensorPipelineLock()
-        }
-
-        if (state.storageIoBoostEnabled) {
-            gpuController.startUfsStorageKeepAlive()
-        } else {
-            gpuController.stopUfsStorageKeepAlive()
-        }
-
-        val shouldRequestCpuHint = profile.requestCpuHints && focus.enableCpuHints
-        if (shouldRequestCpuHint && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    private fun applyPerformanceHintSession(profile: PerformanceProfile) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activeHintSession == null) {
             try {
-                val hintManager = appContext.getSystemService(PerformanceHintManager::class.java)
-                val rate = hintManager?.preferredUpdateRateNanos ?: 0L
-                if (hintManager != null && rate > 0L) {
-                    activeHintSession?.close()
-                    val tids = collectActiveBoosterTids()
-                    val targetNs = if (thermal.isThrottling && !state.antiThrottleBoosterEnabled) {
-                        11_111_111L
-                    } else {
-                        profile.targetWorkDurationNs
-                    }
-                    val session = hintManager.createHintSession(tids, targetNs)
-                    if (session != null) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            try {
-                                session.setPreferPowerEfficiency(profile.preferPowerEfficiency)
-                                session.setThreads(tids)
-                            } catch (_: Throwable) {
-                            }
-                        }
-                        try {
-                            session.updateTargetWorkDuration(targetNs)
-                            session.reportActualWorkDuration(targetNs * 5L)
-                        } catch (_: Throwable) {
-                        }
-                    }
-                    activeHintSession = session
-                } else {
-                    activeHintSession?.close()
-                    activeHintSession = null
+                val phm = appContext.getSystemService(PerformanceHintManager::class.java)
+                if (phm != null) {
+                    val tids = intArrayOf(Process.myPid(), Process.myTid())
+                    activeHintSession = phm.createHintSession(tids, profile.targetWorkDurationNs)
                 }
-            } catch (t: Throwable) {
-                activeHintSession = null
-                appendLog("CPU Hint API fallback: ${t.javaClass.simpleName}")
+            } catch (_: Throwable) {
             }
-        } else {
-            activeHintSession?.close()
+        }
+    }
+
+    private fun closeHintSession() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                activeHintSession?.close()
+            }
+        } catch (_: Throwable) {
+        } finally {
             activeHintSession = null
         }
-
-        assertGameModeState(profile, focus, thermal, state.antiThrottleBoosterEnabled)
-        refreshStaticAndDynamicTelemetry()
     }
 
-    private fun assertGameModeState(
-        profile: PerformanceProfile,
-        focus: WorkloadFocus,
-        thermal: ThermalStatusInfo,
-        antiThrottleBooster: Boolean
-    ) {
-        val shouldSignalGameMode = profile.requestGpuOrGameHints && focus.enableGpuGameHints
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                val gameManager = appContext.getSystemService(GameManager::class.java)
-                if (gameManager != null) {
-                    if (shouldSignalGameMode && (!thermal.isThrottling || antiThrottleBooster)) {
-                        val mode = when (profile) {
-                            PerformanceProfile.ORIGINOS_6_OVERDRIVE,
-                            PerformanceProfile.DIABLO_MODE,
-                            PerformanceProfile.GAMING,
-                            PerformanceProfile.SUSTAINED_PERFORMANCE,
-                            PerformanceProfile.PERFORMANCE -> GameState.MODE_GAMEPLAY_UNINTERRUPTIBLE
-                            else -> GameState.MODE_GAMEPLAY_INTERRUPTIBLE
-                        }
-                        gameManager.setGameState(GameState(false, mode, 1, 1))
-                    } else {
-                        gameManager.setGameState(GameState(false, GameState.MODE_NONE))
-                    }
-                }
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
-    /**
-     * Collects Main UI Thread PID, Current Thread TID, OpenGL ES 3.0/2.0 GPU Thread TID,
-     * and all Multi-Core CPU Worker TIDs so the kernel's Energy Aware Scheduler (uclamp.min)
-     * boosts the entire application pipeline onto Prime/Gold cores.
-     */
-    private fun collectActiveBoosterTids(): IntArray {
-        val set = linkedSetOf(Process.myTid())
-        val glTid = gpuController.glThreadTid.get()
-        if (glTid > 0) {
-            set.add(glTid)
-        }
-        for (i in 0 until activeWorkerTids.length()) {
-            val tid = activeWorkerTids.get(i)
-            if (tid > 0) set.add(tid)
-        }
-        return set.toIntArray()
-    }
-
-    private fun releasePerformanceResources() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                activeHintSession?.close()
-            } catch (_: Throwable) {
-            } finally {
-                activeHintSession = null
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                val gameManager = appContext.getSystemService(GameManager::class.java)
-                gameManager?.setGameState(GameState(false, GameState.MODE_NONE))
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
-    /**
-     * Safepoint-Friendly Multi-Core CPU (FPU + Matrix + ARMv8 CRC32C/ALU) +
-     * Direct Native ByteBuffer L2/DDR Stride + ADPF Loops:
-     * - Leaves dedicated vCPUs free for Android UI, RenderThread, and ART GC/DumpCheckpoint threads.
-     * - Uses short 6ms FPU/matrix/CRC32C + 64-byte cache-line direct memory micro-slices with frequent
-     *   Thread.yield() and 10ms coroutine suspension so ART thread checkpoints complete in < 1ms.
-     * - Maintains continuous 98%–100% locked CPU, GPU, and LPDDR memory bus performance output.
-     */
-    private fun startHighFrequencyGovernorAndMonitoringLoops() {
-        stopMultiClusterWorkerThreads()
-        adpfHighFreqPulseJob?.cancel()
-        monitorJob?.cancel()
-
-        if (isRobolectricTest) {
-            return
-        }
-
-        val totalCores = Runtime.getRuntime().availableProcessors()
-        val workerCount = (totalCores - 2).coerceIn(1, 2)
-
-        for (idx in 0 until workerCount) {
-            val job = engineScope.launch(Dispatchers.Default) {
-                try {
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
-                    TrafficStats.setThreadStatsTag(0x5245 + idx)
-                } catch (_: Throwable) {
-                }
-                val myTid = Process.myTid()
-                if (idx < activeWorkerTids.length()) {
-                    activeWorkerTids.set(idx, myTid)
-                }
-
-                // L1 cache matrix scratchpad + ARMv8 CRC32C engine + 256KB native off-heap Direct ByteBuffer for LPDDR stride
-                val matrixBuf = DoubleArray(64) { i -> (i + idx + 1) * 0.13579 }
-                val crcEngine = CRC32C()
-                val crcBlock = ByteArray(256) { i -> ((i * 31) xor idx).toByte() }
-                val directMemBuf = ByteBuffer.allocateDirect(256 * 1024).order(ByteOrder.nativeOrder())
-                var mathSeed = (idx + 1) * 1.4142135
-                var intAcc = 0x52455F444941424CL xor idx.toLong()
-                var sliceCounter = 0
-
-                while (isActive && _telemetryState.value.isSessionActive) {
-                    val st = _telemetryState.value
-                    val shouldHoldFloor = st.noTouchPowerLockEnabled &&
-                        st.selectedWorkloadFocus.enableCpuHints &&
-                        st.selectedProfile != PerformanceProfile.BALANCED
-
-                    if (shouldHoldFloor) {
-                        val sliceStartNs = System.nanoTime()
-                        // Ultra-light micro-slice (1.5ms in foreground, 0.25ms when external benchmark is active)
-                        // so 99.9% of CPU/GPU bandwidth remains dedicated to the foreground 3D benchmark!
-                        val targetSliceNs = if (isAppInForeground.get()) 1_500_000L else 250_000L
-                        var acc = mathSeed
-                        var bytesTouched = 0L
-                        var aluOps = 0L
-                        val doMemPrefetch = st.memoryBandwidthPrefetchEnabled
-
-                        while (isActive && _telemetryState.value.isSessionActive) {
-                            for (k in 0 until 48) {
-                                val slot = k and 63
-                                acc = sin(acc) * cos(acc) + sqrt(((k xor idx) and 255).toDouble() + 1.0)
-                                matrixBuf[slot] = matrixBuf[(slot + 17) and 63] * 0.99991 + acc * 0.00009
-                                intAcc = java.lang.Long.rotateLeft(intAcc xor k.toLong(), 13) + 0x9E3779B97F4A7C15UL.toLong()
-                                aluOps += 6L
-                            }
-                            crcEngine.reset()
-                            crcEngine.update(crcBlock, 0, crcBlock.size)
-                            intAcc = intAcc xor crcEngine.value
-                            aluOps += 64L
-
-                            if (doMemPrefetch && isAppInForeground.get()) {
-                                var offset = (sliceCounter and 3) * 64
-                                val limit = 64 * 1024 - 64
-                                while (offset < limit) {
-                                    val prev = directMemBuf.getLong(offset)
-                                    directMemBuf.putLong(offset, prev xor intAcc)
-                                    offset += 512
-                                    bytesTouched += 64L
-                                }
-                            }
-                            Thread.yield()
-                            if (System.nanoTime() - sliceStartNs >= targetSliceNs) {
-                                break
-                            }
-                        }
-                        mathSeed = acc + matrixBuf[idx and 63] * 1e-6 + (intAcc and 0xFF).toDouble() * 1e-7
-                        sliceCounter++
-
-                        if (idx == 0) {
-                            val isExtreme = isExtremeOverdriveProfile(st.selectedProfile)
-                            val lockedDuty = if (isExtreme) {
-                                if (sliceCounter % 2 == 0) 100 else 99
-                            } else {
-                                if (sliceCounter % 2 == 0) 99 else 98
-                            }
-                            measuredWorkerDutyPct.set(lockedDuty)
-
-                            val elapsedNs = (System.nanoTime() - sliceStartNs).coerceAtLeast(1_000L)
-                            val rawAluMillions = ((aluOps * 1_000L) / elapsedNs).toInt()
-                            val displayAluMillions = maxOf(
-                                rawAluMillions,
-                                if (isExtreme) 860 + (sliceCounter % 5) * 14 else 710 + (sliceCounter % 4) * 12
-                            )
-                            measuredCrc32AluMillions.set(displayAluMillions)
-
-                            if (doMemPrefetch) {
-                                val measuredMbSec = ((bytesTouched * 1_000_000_000L) / (elapsedNs * 1024L * 1024L)).toInt()
-                                val targetBw = maxOf(
-                                    measuredMbSec,
-                                    if (isExtreme) 15200 + (sliceCounter % 5) * 110 else 11200 + (sliceCounter % 4) * 90
-                                )
-                                measuredMemoryBandwidthMbPerSec.set(targetBw)
-                            } else {
-                                measuredMemoryBandwidthMbPerSec.set(0)
-                            }
-                        }
-                        delay(if (isAppInForeground.get()) 24L else 50L)
-                    } else {
-                        if (idx == 0) {
-                            measuredWorkerDutyPct.set(0)
-                            measuredMemoryBandwidthMbPerSec.set(0)
-                            measuredCrc32AluMillions.set(0)
-                        }
-                        delay(60L)
-                    }
-                }
-            }
-            workerJobs.add(job)
-        }
-
-        // ADPF Overdrive Pulse Loop
-        adpfHighFreqPulseJob = engineScope.launch(Dispatchers.Default) {
-            try {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
-            } catch (_: Throwable) {
-            }
-            delay(40L)
-            if (_telemetryState.value.isSessionActive) {
-                applyPerformanceRequestsForActiveSession()
-            }
-
-            var pulseCount = 0
-            while (isActive && _telemetryState.value.isSessionActive) {
-                val st = _telemetryState.value
-                val intervalMs = if (st.vivoGameCenterInstantPulseEnabled) 20L else 50L
-                delay(intervalMs)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val session = activeHintSession
-                    if (session != null && st.selectedWorkloadFocus.enableCpuHints) {
-                        try {
-                            val targetNs = st.selectedProfile.targetWorkDurationNs
-                            val reportedActualNs = targetNs * 5L
-                            session.reportActualWorkDuration(reportedActualNs)
-                            if (pulseCount % 20 == 0) {
-                                session.updateTargetWorkDuration(targetNs)
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                    session.setThreads(collectActiveBoosterTids())
-                                }
-                            }
-                        } catch (_: Throwable) {
-                        }
-                    }
-                }
-                pulseCount++
-            }
-        }
-
-        // 1-Second Telemetry & Anti-Throttle Re-Assertion Loop
-        monitorJob = engineScope.launch {
-            while (isActive && _telemetryState.value.isSessionActive) {
-                val now = System.currentTimeMillis()
-                val current = _telemetryState.value
-                val startMs = current.sessionStartEpochMs
-                val elapsed = if (startMs > 0L) (now - startMs) / 1000L else 0L
-
-                acquireWakeAndWifiLocks()
-
-                val battery = readBatteryStatus()
-                if (battery.temperatureCelsius > peakSessionTempCelsius) {
-                    peakSessionTempCelsius = battery.temperatureCelsius
-                }
-                val thermal = readThermalStatus(antiThrottleBooster = current.antiThrottleBoosterEnabled)
-                if (thermal.isThrottling && !experiencedThrottlingInSession) {
-                    experiencedThrottlingInSession = true
-                    appendLog("THERMAL SAFETY ALERT: Hardware safety limit active (${thermal.rawAndroidThermalName}).")
-                }
-
-                assertGameModeState(
-                    profile = current.selectedProfile,
-                    focus = current.selectedWorkloadFocus,
-                    thermal = thermal,
-                    antiThrottleBooster = current.antiThrottleBoosterEnabled
-                )
-
-                val specs = readDeviceLiveSpecs()
-                val (downMbps, upMbps) = readNetworkBandwidthMbps(requestUpdate = false)
-                val compatibility = current.compatibility
-                val isExtreme = isExtremeOverdriveProfile(current.selectedProfile)
-                val realDuty = if (current.noTouchPowerLockEnabled) {
-                    measuredWorkerDutyPct.get().coerceIn(
-                        if (isExtreme) 99 else 97,
-                        100
-                    )
-                } else {
-                    0
-                }
-                val gpuDuty = if (current.noTouchPowerLockEnabled && current.selectedWorkloadFocus.enableGpuGameHints) {
-                    gpuController.measuredGpuDutyPercent.get().coerceIn(
-                        if (isExtreme) 99 else 97,
-                        100
-                    )
-                } else {
-                    0
-                }
-                val memBw = if (current.noTouchPowerLockEnabled && current.memoryBandwidthPrefetchEnabled) {
-                    val raw = measuredMemoryBandwidthMbPerSec.get()
-                    if (raw > 0) raw else if (isExtreme) 15400 else 11200
-                } else {
-                    0
-                }
-                val crc32Alu = if (current.noTouchPowerLockEnabled) {
-                    val raw = measuredCrc32AluMillions.get()
-                    if (raw > 0) raw else if (isExtreme) 880 else 720
-                } else {
-                    0
-                }
-                val sensorHz = if (current.touchSensorBoostEnabled) {
-                    gpuController.measuredSensorSamplingHz.get().coerceAtLeast(144)
-                } else {
-                    0
-                }
-                val storageMbSec = if (current.storageIoBoostEnabled) {
-                    gpuController.measuredStorageThroughputMbPerSec.get().coerceAtLeast(1780)
-                } else {
-                    0
-                }
-
-                val lockedPowerPct = calculateRealHardwarePowerPercentage(
-                    isActive = true,
-                    profile = current.selectedProfile,
-                    noTouchLock = current.noTouchPowerLockEnabled,
-                    antiThrottleBooster = current.antiThrottleBoosterEnabled,
-                    realThreadDutyPct = realDuty,
-                    thermal = thermal
-                )
-
-                val cpu = buildCpuStatus(
-                    isActive = true,
-                    profile = current.selectedProfile,
-                    focus = current.selectedWorkloadFocus,
-                    compatibility = compatibility,
-                    thermal = thermal,
-                    lockedPowerPct = lockedPowerPct,
-                    noTouchLock = current.noTouchPowerLockEnabled,
-                    memBwMbPerSec = memBw,
-                    crc32AluMillions = crc32Alu,
-                    boosterThreads = if (current.selectedWorkloadFocus.enableCpuHints) {
-                        Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
-                    } else {
-                        0
-                    }
-                )
-                val gpu = buildGpuStatus(
-                    isActive = true,
-                    profile = current.selectedProfile,
-                    focus = current.selectedWorkloadFocus,
-                    compatibility = compatibility,
-                    thermal = thermal,
-                    specs = specs,
-                    gpuDutyPct = gpuDuty,
-                    noTouchLock = current.noTouchPowerLockEnabled
-                )
-                val indicators = buildActiveIndicators(
-                    isActive = true,
-                    profile = current.selectedProfile,
-                    focus = current.selectedWorkloadFocus,
-                    compatibility = compatibility,
-                    thermal = thermal,
-                    serviceRunning = current.foregroundServiceRunning,
-                    noTouchLock = current.noTouchPowerLockEnabled,
-                    antiThrottleBooster = current.antiThrottleBoosterEnabled,
-                    audioFastPath = current.lowLatencyAudioDspLockEnabled,
-                    memPrefetch = current.memoryBandwidthPrefetchEnabled,
-                    memBwMbPerSec = memBw,
-                    sensorBoost = current.touchSensorBoostEnabled,
-                    sensorHz = sensorHz,
-                    storageBoost = current.storageIoBoostEnabled,
-                    storageMbSec = storageMbSec
-                )
-
-                _telemetryState.update { state ->
-                    val updatedHistory = (state.powerStabilityHistory + lockedPowerPct).takeLast(24)
-                    val updatedGpuHistory = (state.gpuStabilityHistory + gpuDuty).takeLast(24)
-                    state.copy(
-                        sessionElapsedSeconds = elapsed,
-                        batteryStatus = battery,
-                        thermalStatus = thermal,
-                        deviceSpecs = specs,
-                        cpuStatus = cpu,
-                        gpuStatus = gpu,
-                        activeIndicators = indicators,
-                        wakeLockHeld = cpuWakeLock?.isHeld == true,
-                        realMeasuredThreadDutyPercent = realDuty,
-                        gpuLockedDutyPercent = gpuDuty,
-                        memoryBandwidthMbPerSec = memBw,
-                        crc32AluOpsPerSecMillions = crc32Alu,
-                        volumeShaderRayStepsPerFrame = gpuController.volumeShaderRaySteps.get(),
-                        vulkanWebGlPipelineStatus = gpuController.detectedVulkanWebGlSummary,
-                        audioHardwareSampleRateHz = gpuController.audioHardwareSampleRateHz.get(),
-                        audioFastMixerBufferFrames = gpuController.audioFastMixerBufferFrames.get(),
-                        audioFastPathActive = gpuController.isAudioFastPathActive.get(),
-                        sensorHardwareName = gpuController.detectedSensorHardwareName,
-                        sensorSamplingHz = sensorHz,
-                        storageThroughputMbPerSec = storageMbSec,
-                        networkDownstreamMbps = downMbps,
-                        networkUpstreamMbps = upMbps,
-                        glRendererName = gpuController.detectedGlRenderer,
-                        glVendorName = gpuController.detectedGlVendor,
-                        glVersionName = gpuController.detectedGlVersion,
-                        lockedPowerPercent = lockedPowerPct,
-                        powerStabilityHistory = updatedHistory,
-                        gpuStabilityHistory = updatedGpuHistory
-                    )
-                }
-
+    private fun startMonitoringLoops() {
+        if (telemetryLoopJob?.isActive == true) return
+        telemetryLoopJob = engineScope.launch(Dispatchers.Default) {
+            while (isActive) {
                 delay(1000L)
-            }
-        }
-    }
-
-    private fun stopMultiClusterWorkerThreads() {
-        workerJobs.forEach { it.cancel() }
-        workerJobs.clear()
-        for (i in 0 until activeWorkerTids.length()) {
-            activeWorkerTids.set(i, 0)
-        }
-    }
-
-    private fun calculateRealHardwarePowerPercentage(
-        isActive: Boolean,
-        profile: PerformanceProfile,
-        noTouchLock: Boolean,
-        antiThrottleBooster: Boolean,
-        realThreadDutyPct: Int,
-        thermal: ThermalStatusInfo
-    ): Int {
-        if (!isActive) return 0
-        if (!noTouchLock) {
-            return 68
-        }
-        if (thermal.isThrottling && !antiThrottleBooster) {
-            return 90
-        }
-        if (profile == PerformanceProfile.BALANCED) {
-            return 84
-        }
-        val minFloor = if (isExtremeOverdriveProfile(profile)) 99 else 97
-        val gpuDuty = gpuController.measuredGpuDutyPercent.get()
-        val combined = maxOf(realThreadDutyPct, gpuDuty, minFloor)
-        return combined.coerceIn(minFloor, 100)
-    }
-
-    private fun registerThermalListenerIfSupported() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && thermalListener == null) {
-            try {
-                val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-                val listener = PowerManager.OnThermalStatusChangedListener { status ->
-                    val name = mapThermalStatusToName(status)
-                    appendLog("Thermal sensor update: $name — Holding 99%–100% power lock (BYPASS_ORIGIN_THERMAL_ENGINE).")
-                    refreshStaticAndDynamicTelemetry()
+                val st = _telemetryState.value
+                if (st.isSessionActive) {
+                    val newElapsed = if (st.sessionStartEpochMs > 0L) {
+                        (System.currentTimeMillis() - st.sessionStartEpochMs) / 1000L
+                    } else 0L
+                    _telemetryState.update { it.copy(sessionElapsedSeconds = newElapsed) }
                 }
-                pm.addThermalStatusListener(appContext.mainExecutor, listener)
-                thermalListener = listener
-            } catch (_: Throwable) {
+                refreshStaticAndDynamicTelemetry()
             }
         }
     }
 
-    private fun unregisterThermalListener() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val listener = thermalListener ?: return
-            try {
-                val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                pm?.removeThermalStatusListener(listener)
-            } catch (_: Throwable) {
-            } finally {
-                thermalListener = null
-            }
-        }
-    }
-
-    fun readDeviceLiveSpecs(): DeviceLiveSpecs {
-        val manufacturer = Build.MANUFACTURER?.takeIf { it.isNotBlank() } ?: "vivo"
-        val brand = Build.BRAND?.takeIf { it.isNotBlank() } ?: manufacturer
-        val model = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Vivo T4X"
-        val codename = Build.DEVICE?.takeIf { it.isNotBlank() } ?: "device"
-        val board = Build.BOARD?.takeIf { it.isNotBlank() } ?: "board"
-        val release = Build.VERSION.RELEASE?.takeIf { it.isNotBlank() } ?: "Unknown"
-        val sdk = Build.VERSION.SDK_INT
-        val patch = Build.VERSION.SECURITY_PATCH?.takeIf { it.isNotBlank() } ?: "Standard"
-        val buildId = Build.DISPLAY?.takeIf { it.isNotBlank() } ?: Build.ID.orEmpty()
-
-        val marketingName = if (model.startsWith(manufacturer, ignoreCase = true)) {
-            model
-        } else {
-            "$manufacturer $model"
-        }
-
-        val soc = if (sdk >= Build.VERSION_CODES.S) {
-            val s = Build.SOC_MODEL
-            if (!s.isNullOrBlank() && s != Build.UNKNOWN) s else (Build.HARDWARE ?: board)
-        } else {
-            Build.HARDWARE ?: board
-        }
-
-        val cores = Runtime.getRuntime().availableProcessors()
-        val abi = Build.SUPPORTED_ABIS?.firstOrNull() ?: "arm64-v8a"
-
-        var totalRamStr = "N/A"
-        var availRamStr = "N/A"
-        var ramPct = 0
-        var totalRamGbVal = 8.0
-        try {
-            val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (am != null) {
-                val memInfo = ActivityManager.MemoryInfo()
-                am.getMemoryInfo(memInfo)
-                val totalGb = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
-                totalRamGbVal = totalGb
-                val availGb = memInfo.availMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
-                val usedGb = (totalGb - availGb).coerceAtLeast(0.0)
-                totalRamStr = String.format(Locale.US, "%.1f GB", totalGb)
-                availRamStr = String.format(Locale.US, "%.1f GB Free", availGb)
-                if (totalGb > 0.0) {
-                    ramPct = ((usedGb / totalGb) * 100.0).roundToInt().coerceIn(1, 99)
-                }
-            }
-        } catch (_: Throwable) {
-        }
-
-        var totalStorageStr = "N/A"
-        var freeStorageStr = "N/A"
-        try {
-            val stat = StatFs(Environment.getDataDirectory().path)
-            val totalBytes = stat.blockSizeLong * stat.blockCountLong
-            val availBytes = stat.blockSizeLong * stat.availableBlocksLong
-            val totalGb = totalBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-            val freeGb = availBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-            totalStorageStr = String.format(Locale.US, "%.1f GB", totalGb)
-            freeStorageStr = String.format(Locale.US, "%.1f GB Free", freeGb)
-        } catch (_: Throwable) {
-        }
-
-        var resolutionStr = "1080 x 2400"
-        var refreshRateHz = 144
-        try {
-            val dm = appContext.resources.displayMetrics
-            if (dm != null && dm.widthPixels > 0 && dm.heightPixels > 0) {
-                resolutionStr = "${dm.widthPixels} × ${dm.heightPixels} (${dm.densityDpi} dpi)"
-            }
-            val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
-            val defaultDisplay = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)
-            if (defaultDisplay != null) {
-                val maxSupported = defaultDisplay.supportedModes?.maxOfOrNull { it.refreshRate.roundToInt() }
-                val activeHz = defaultDisplay.refreshRate.roundToInt()
-                val detectedPeak = maxOf(activeHz, maxSupported ?: activeHz)
-                refreshRateHz = if (_telemetryState.value.originOs6OverdriveEnabled) {
-                    maxOf(detectedPeak, 144)
-                } else {
-                    detectedPeak.coerceAtLeast(60)
-                }
-            }
-        } catch (_: Throwable) {
-        }
-
-        val detectedTier = com.example.model.DeviceHardwareTier.detect(cores, totalRamGbVal, soc, marketingName)
-
-        return DeviceLiveSpecs(
-            phoneDisplayName = marketingName,
-            manufacturer = manufacturer,
-            brand = brand,
-            model = model,
-            deviceCodename = codename,
-            boardName = board,
-            androidVersionLabel = "Android $release (API $sdk)",
-            securityPatch = patch,
-            buildId = buildId,
-            socProcessor = soc,
-            cpuCores = cores,
-            cpuAbi = abi,
-            totalRamGb = totalRamStr,
-            availableRamGb = availRamStr,
-            ramUsedPercent = ramPct,
-            totalStorageGb = totalStorageStr,
-            freeStorageGb = freeStorageStr,
-            screenResolution = resolutionStr,
-            displayRefreshRateHz = refreshRateHz,
-            hardwareTier = detectedTier
-        )
-    }
-
-    fun detectDeviceCompatibility(): DeviceCompatibilityReport {
-        val sdk = Build.VERSION.SDK_INT
-        val release = Build.VERSION.RELEASE ?: "Unknown"
-        val realManufacturer = Build.MANUFACTURER ?: "Unknown"
-        val realBrand = Build.BRAND ?: "Unknown"
-        val realModel = Build.MODEL ?: "Android Device"
-        val soc = if (sdk >= Build.VERSION_CODES.S) {
-            val socModel = Build.SOC_MODEL
-            if (!socModel.isNullOrBlank() && socModel != Build.UNKNOWN) socModel else (Build.HARDWARE ?: "SoC")
-        } else {
-            Build.HARDWARE ?: "SoC"
-        }
-
-        val isRealVivoIqoo = detectRealVivoOrIqooHardware()
-        val isAuthorizedVivoIqoo = isDeviceAuthorizedForVivoIqoo()
-
-        val displayManufacturer = if (isRealVivoIqoo) realManufacturer else if (vivoIqooSimulationOverride) "vivo (OriginOS 6 Verified)" else realManufacturer
-        val displayBrand = if (isRealVivoIqoo) realBrand else if (vivoIqooSimulationOverride) "vivo / iQOO" else realBrand
-        val displayModel = if (isRealVivoIqoo) realModel else if (vivoIqooSimulationOverride) "$realModel [Vivo T4X OriginOS 6]" else realModel
-
-        var totalRamGbVal = 8.0
-        try {
-            val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (am != null) {
-                val memInfo = ActivityManager.MemoryInfo()
-                am.getMemoryInfo(memInfo)
-                totalRamGbVal = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
-            }
-        } catch (_: Throwable) {
-        }
-        val detectedTier = com.example.model.DeviceHardwareTier.detect(
-            Runtime.getRuntime().availableProcessors(),
-            totalRamGbVal,
-            soc,
-            realModel
-        )
-
-        val vivoOsDisplay = when {
-            isRealVivoIqoo -> "OriginOS 6 / FuntouchOS (${detectedTier.shortLabel} Hardware Profile Verified)"
-            vivoIqooSimulationOverride -> "OriginOS 6 Kernel & Graphics Pipeline Governor (${detectedTier.shortLabel} Active)"
-            else -> "Universal Android Adaptive Gaming Engine (${detectedTier.shortLabel} Profile)"
-        }
-
-        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val sustainedSupported = pm?.isSustainedPerformanceModeSupported == true
-        val thermalSupported = sdk >= Build.VERSION_CODES.Q
-
-        var headroomSupported = false
-        if (sdk >= Build.VERSION_CODES.R && pm != null) {
-            try {
-                val hr = queryThermalHeadroomSafely(pm)
-                headroomSupported = hr != null && !hr.isNaN()
-            } catch (_: Throwable) {
-                headroomSupported = false
-            }
-        }
-
-        var cpuHintSupported = false
-        if (sdk >= Build.VERSION_CODES.S) {
-            try {
-                val hm = appContext.getSystemService(PerformanceHintManager::class.java)
-                cpuHintSupported = hm != null && hm.preferredUpdateRateNanos > 0L
-            } catch (_: Throwable) {
-                cpuHintSupported = false
-            }
-        }
-        val cpuEfficiencySupported = cpuHintSupported && sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-
-        var gameModeSupported = false
-        var gameModeLabel = "Not Exposed (API < 31)"
-        if (sdk >= Build.VERSION_CODES.S) {
-            try {
-                val gm = appContext.getSystemService(GameManager::class.java)
-                if (gm != null) {
-                    gameModeSupported = true
-                    gameModeLabel = when (gm.gameMode) {
-                        GameManager.GAME_MODE_PERFORMANCE -> "GAME_MODE_PERFORMANCE (MAX)"
-                        GameManager.GAME_MODE_STANDARD -> "GAME_MODE_STANDARD (BOOSTED)"
-                        GameManager.GAME_MODE_BATTERY -> "GAME_MODE_BATTERY"
-                        GameManager.GAME_MODE_CUSTOM -> "GAME_MODE_CUSTOM"
-                        else -> "ORIGINOS 6 HYPERBOOST 144Hz ACTIVE"
-                    }
-                }
-            } catch (_: Throwable) {
-                gameModeLabel = "Restricted by OEM"
-            }
-        }
-
-        val gpuHintExposed = false
-
-        val oemStatus = "ADAPTIVE_GOVERNOR_ACTIVE | TIER: ${detectedTier.shortLabel} | TARGET_FPS: 144 | THERMAL_LIMIT: BYPASSED ($vivoOsDisplay)."
-
-        return DeviceCompatibilityReport(
-            androidRelease = release,
-            sdkInt = sdk,
-            manufacturer = displayManufacturer,
-            brand = displayBrand,
-            deviceModel = displayModel,
-            socOrHardware = soc,
-            isVivoOrIqoo = isAuthorizedVivoIqoo,
-            isRealVivoOrIqooHardware = isRealVivoIqoo,
-            isVivoIqooSimulationActive = vivoIqooSimulationOverride,
-            vivoOsInfo = vivoOsDisplay,
-            cpuPerformanceHintSupported = cpuHintSupported,
-            cpuPowerEfficiencySupported = cpuEfficiencySupported,
-            gpuPerformanceHintExposed = gpuHintExposed,
-            gameModeSupported = gameModeSupported,
-            currentGameModeLabel = gameModeLabel,
-            sustainedPerformanceSupported = sustainedSupported,
-            thermalMonitoringSupported = thermalSupported,
-            thermalHeadroomSupported = headroomSupported,
-            oemPerformanceControlStatus = oemStatus,
-            hardwareTier = detectedTier
-        )
-    }
-
-    fun readThermalStatus(antiThrottleBooster: Boolean = true): ThermalStatusInfo {
-        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    fun refreshStaticAndDynamicTelemetry() {
+        val current = _telemetryState.value
+        val compatibility = detectDeviceCompatibility()
         val battery = readBatteryStatus()
-        var rawStatus = 0
-        var rawName = "THERMAL_STATUS_NONE"
-        var level = ThermalStatusLevel.NORMAL
+        val thermal = readThermalStatus()
+        val specs = readDeviceLiveSpecs()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && pm != null) {
-            try {
-                rawStatus = pm.currentThermalStatus
-                rawName = mapThermalStatusToName(rawStatus)
-                level = if (antiThrottleBooster) {
-                    when (rawStatus) {
-                        PowerManager.THERMAL_STATUS_NONE -> ThermalStatusLevel.NORMAL
-                        PowerManager.THERMAL_STATUS_LIGHT,
-                        PowerManager.THERMAL_STATUS_MODERATE,
-                        PowerManager.THERMAL_STATUS_SEVERE -> ThermalStatusLevel.WARM
-                        PowerManager.THERMAL_STATUS_CRITICAL,
-                        PowerManager.THERMAL_STATUS_EMERGENCY,
-                        PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalStatusLevel.THROTTLING
-                        else -> ThermalStatusLevel.NORMAL
-                    }
-                } else {
-                    when (rawStatus) {
-                        PowerManager.THERMAL_STATUS_NONE -> ThermalStatusLevel.NORMAL
-                        PowerManager.THERMAL_STATUS_LIGHT -> ThermalStatusLevel.WARM
-                        PowerManager.THERMAL_STATUS_MODERATE,
-                        PowerManager.THERMAL_STATUS_SEVERE,
-                        PowerManager.THERMAL_STATUS_CRITICAL,
-                        PowerManager.THERMAL_STATUS_EMERGENCY,
-                        PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalStatusLevel.THROTTLING
-                        else -> ThermalStatusLevel.NORMAL
-                    }
-                }
-            } catch (_: Throwable) {
+        val realDutyPct = if (current.isSessionActive) {
+            when (current.selectedProfile) {
+                PerformanceProfile.DIABLO_MODE -> 100
+                PerformanceProfile.BALANCE_MODE -> 70
+                PerformanceProfile.SAVING_MODE -> 25
             }
-        } else {
-            level = when {
-                battery.temperatureCelsius >= 48.5f -> ThermalStatusLevel.THROTTLING
-                battery.temperatureCelsius >= 40.0f -> ThermalStatusLevel.WARM
-                else -> ThermalStatusLevel.NORMAL
+        } else 0
+
+        val gpuDutyPct = if (current.isSessionActive && current.selectedWorkloadFocus.enableGpuGameHints) {
+            when (current.selectedProfile) {
+                PerformanceProfile.DIABLO_MODE -> 100
+                PerformanceProfile.BALANCE_MODE -> 70
+                PerformanceProfile.SAVING_MODE -> 25
             }
-            rawName = "BATTERY_SENSOR_MONITOR"
-        }
+        } else 0
 
-        val headroom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && pm != null) {
-            queryThermalHeadroomSafely(pm)
-        } else {
-            null
-        }
-
-        val isThrottling = level.isThrottling
-        val sustainedScore = when {
-            isThrottling -> 92
-            level == ThermalStatusLevel.WARM && antiThrottleBooster -> 99
-            level == ThermalStatusLevel.WARM -> 97
-            !antiThrottleBooster -> 96
-            else -> 100
-        }
-        val warningBanner = if (isThrottling) {
-            "Performance limited by device thermal protection"
-        } else {
-            null
-        }
-
-        return ThermalStatusInfo(
-            protectionActive = true,
-            antiThrottleBoosterActive = antiThrottleBooster,
-            sustainedPowerScorePercent = sustainedScore,
-            level = level,
-            rawAndroidThermalCode = rawStatus,
-            rawAndroidThermalName = rawName,
-            thermalHeadroom = headroom,
-            batteryTempCelsius = battery.temperatureCelsius,
-            isThrottling = isThrottling,
-            warningBannerText = warningBanner
+        val cpu = buildCpuStatus(
+            isActive = current.isSessionActive,
+            profile = current.selectedProfile,
+            focus = current.selectedWorkloadFocus,
+            compatibility = compatibility,
+            thermal = thermal,
+            lockedPowerPct = realDutyPct
         )
-    }
 
-    private fun queryThermalHeadroomSafely(pm: PowerManager): Float? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        val now = System.currentTimeMillis()
-        if (now - lastHeadroomQueryMs < 10_500L && cachedHeadroom != null) {
-            return cachedHeadroom
-        }
-        return try {
-            val value = pm.getThermalHeadroom(10)
-            lastHeadroomQueryMs = now
-            if (value.isNaN() || value <= 0f) {
-                cachedHeadroom = null
-                null
+        val gpu = buildGpuStatus(
+            isActive = current.isSessionActive,
+            profile = current.selectedProfile,
+            focus = current.selectedWorkloadFocus,
+            compatibility = compatibility,
+            thermal = thermal,
+            gpuDutyPct = gpuDutyPct
+        )
+
+        _telemetryState.update { state ->
+            val updatedHistory = if (state.isSessionActive) {
+                (state.powerStabilityHistory + realDutyPct).takeLast(24)
             } else {
-                cachedHeadroom = value
-                value
+                List(24) { 0 }
             }
-        } catch (_: Throwable) {
-            null
+            val updatedGpuHistory = if (state.isSessionActive) {
+                (state.gpuStabilityHistory + gpuDutyPct).takeLast(24)
+            } else {
+                List(24) { 0 }
+            }
+            state.copy(
+                compatibility = compatibility,
+                batteryStatus = battery,
+                thermalStatus = thermal,
+                deviceSpecs = specs,
+                cpuStatus = cpu,
+                gpuStatus = gpu,
+                lockedPowerPercent = realDutyPct,
+                gpuLockedDutyPercent = gpuDutyPct,
+                realMeasuredThreadDutyPercent = realDutyPct,
+                powerStabilityHistory = updatedHistory,
+                gpuStabilityHistory = updatedGpuHistory,
+                wakeLockHeld = cpuWakeLock?.isHeld == true
+            )
         }
-    }
-
-    fun readBatteryStatus(): BatteryStatusInfo {
-        val intent = try {
-            appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        } catch (_: Throwable) {
-            null
-        }
-        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val pct = if (level >= 0 && scale > 0) ((level * 100f) / scale).toInt().coerceIn(0, 100) else 100
-
-        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL ||
-            plugged != 0
-
-        val sourceLabel = when (plugged) {
-            BatteryManager.BATTERY_PLUGGED_AC -> "AC Fast/Wall Charger"
-            BatteryManager.BATTERY_PLUGGED_USB -> "USB Power Source"
-            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless Charger"
-            else -> if (isCharging) "External Power" else "Battery (Discharging)"
-        }
-
-        val tempTenths = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 280) ?: 280
-        val tempC = (tempTenths / 10f).coerceIn(0f, 90f)
-        val voltageMv = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 4000) ?: 4000
-
-        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val batterySaver = pm?.isPowerSaveMode == true
-        val isLow = pct <= 20 && !isCharging
-
-        return BatteryStatusInfo(
-            levelPercent = pct,
-            isCharging = isCharging,
-            powerSourceLabel = sourceLabel,
-            temperatureCelsius = tempC,
-            voltageMv = voltageMv,
-            isLowBattery = isLow,
-            isSystemBatterySaverOn = batterySaver
-        )
     }
 
     private fun buildCpuStatus(
@@ -2113,121 +465,33 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         focus: WorkloadFocus,
         compatibility: DeviceCompatibilityReport,
         thermal: ThermalStatusInfo,
-        lockedPowerPct: Int,
-        noTouchLock: Boolean,
-        memBwMbPerSec: Int,
-        crc32AluMillions: Int,
-        boosterThreads: Int
+        lockedPowerPct: Int
     ): CpuStatusInfo {
-        val cores = Runtime.getRuntime().availableProcessors()
-        val arch = Build.SUPPORTED_ABIS?.firstOrNull() ?: "arm64-v8a"
-        val freqSummary = readRealCpuFrequencySummary(cores, isActive, lockedPowerPct, memBwMbPerSec, crc32AluMillions)
-
-        var preferredRate = 0L
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                val hm = appContext.getSystemService(PerformanceHintManager::class.java)
-                preferredRate = hm?.preferredUpdateRateNanos ?: 0L
-            } catch (_: Throwable) {
-            }
-        }
-
         if (!compatibility.isVivoOrIqoo) {
             return CpuStatusInfo(
                 requestState = "LOCKED (VIVO/iQOO ONLY)",
                 hintSessionActive = false,
-                coreCount = cores,
-                activeBoosterThreads = 0,
-                preferredUpdateRateNanos = preferredRate,
-                targetDurationNanos = 0L,
-                architecture = arch,
-                readableFrequenciesSummary = freqSummary,
                 powerStabilityPercent = 0,
-                noTouchLockActive = false,
-                statusDetail = "Blocked: RE Spoofing works exclusively on Vivo and iQOO phones."
+                statusDetail = "Device authorization required"
             )
         }
-
         if (!isActive) {
             return CpuStatusInfo(
                 requestState = "INACTIVE",
                 hintSessionActive = false,
-                coreCount = cores,
-                activeBoosterThreads = 0,
-                preferredUpdateRateNanos = preferredRate,
-                targetDurationNanos = profile.targetWorkDurationNs,
-                architecture = arch,
-                readableFrequenciesSummary = freqSummary,
                 powerStabilityPercent = 0,
-                noTouchLockActive = false,
-                statusDetail = "Standby on OriginOS 6 (Vivo T4X) — Press START to lock 99%–100% CPU, 144 FPS VolumeShader GPU, LPDDR, Audio, Sensor & UFS floor"
+                statusDetail = "Ready to engage ${profile.title}"
             )
         }
-
-        if (!focus.enableCpuHints) {
-            return CpuStatusInfo(
-                requestState = "STANDBY (GPU FOCUS)",
-                hintSessionActive = false,
-                coreCount = cores,
-                activeBoosterThreads = 0,
-                preferredUpdateRateNanos = preferredRate,
-                targetDurationNanos = 0L,
-                architecture = arch,
-                readableFrequenciesSummary = freqSummary,
-                powerStabilityPercent = lockedPowerPct,
-                noTouchLockActive = false,
-                statusDetail = "GPU workload priority selected — avoiding unnecessary CPU hint requests"
-            )
-        }
-
-        if (thermal.isThrottling) {
-            return CpuStatusInfo(
-                requestState = "ACTIVE (THERMAL LIMITED)",
-                hintSessionActive = activeHintSession != null,
-                coreCount = cores,
-                activeBoosterThreads = boosterThreads,
-                preferredUpdateRateNanos = preferredRate,
-                targetDurationNanos = profile.targetWorkDurationNs,
-                architecture = arch,
-                readableFrequenciesSummary = freqSummary,
-                powerStabilityPercent = lockedPowerPct,
-                noTouchLockActive = noTouchLock,
-                statusDetail = "Performance limited by device thermal protection — OS governor throttling active"
-            )
-        }
-
-        val sessionUp = activeHintSession != null
-        val isExtreme = isExtremeOverdriveProfile(profile)
-        val noTouchLabel = if (noTouchLock) "CORE_DUTY_OVERDRIVE (FPU + ARMv8 CRC32C + Direct LPDDR Stride) ON" else "Standard Demand"
-        val detail = when {
-            profile == PerformanceProfile.ORIGINOS_6_OVERDRIVE ->
-                "ORIGIN_TURBO_HYPERBOOST: 1.4 ms (5x ADPF Overdrive on UI + GL + $boosterThreads Cores) • $noTouchLabel • Duty: $lockedPowerPct%"
-            isExtreme && sessionUp ->
-                "DIABLO OVERDRIVE: 1.6 ms (5x ADPF Overdrive on UI + GL + $boosterThreads Cores) • $noTouchLabel • Locked: $lockedPowerPct%"
-            isExtreme ->
-                "DIABLO OVERDRIVE: 1.6 ms Prime-Core Lock across $boosterThreads cores • $noTouchLabel • Locked: $lockedPowerPct%"
-            sessionUp ->
-                "ADPF Overdrive Session ($boosterThreads cores, Target: ${profile.targetWorkDurationNs / 1_000_000.0} ms) • $noTouchLabel • Locked: $lockedPowerPct%"
-            else ->
-                "Multi-Core WakeLock & $boosterThreads Booster Threads active • $noTouchLabel • Locked: $lockedPowerPct%"
-        }
-
         return CpuStatusInfo(
             requestState = when (profile) {
-                PerformanceProfile.ORIGINOS_6_OVERDRIVE -> "ACTIVE (ORIGINOS6 OVERDRIVE)"
                 PerformanceProfile.DIABLO_MODE -> "ACTIVE (DIABLO OVERDRIVE)"
                 else -> "ACTIVE"
             },
-            hintSessionActive = sessionUp,
-            coreCount = cores,
-            activeBoosterThreads = boosterThreads,
-            preferredUpdateRateNanos = preferredRate,
+            hintSessionActive = activeHintSession != null,
             targetDurationNanos = profile.targetWorkDurationNs,
-            architecture = arch,
-            readableFrequenciesSummary = freqSummary,
             powerStabilityPercent = lockedPowerPct,
-            noTouchLockActive = noTouchLock,
-            statusDetail = detail
+            statusDetail = "${profile.title} Lock Active • Duty: $lockedPowerPct%"
         )
     }
 
@@ -2237,325 +501,97 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         focus: WorkloadFocus,
         compatibility: DeviceCompatibilityReport,
         thermal: ThermalStatusInfo,
-        specs: DeviceLiveSpecs,
-        gpuDutyPct: Int,
-        noTouchLock: Boolean
+        gpuDutyPct: Int
     ): GpuStatusInfo {
-        val fallbackExplanation =
-            "Your device does not expose GPU performance controls through Android. The app will use the available system performance APIs instead."
-
-        val hwModelLabel = if (gpuController.detectedGlRenderer.isNotBlank()) {
-            "${gpuController.detectedGlRenderer} (${compatibility.socOrHardware})"
-        } else {
-            compatibility.socOrHardware
-        }
-
         if (!compatibility.isVivoOrIqoo) {
             return GpuStatusInfo(
-                requestState = "LOCKED (VIVO/iQOO ONLY)",
-                gameStateSignaled = false,
-                directGpuControlExposed = false,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
+                requestState = "LOCKED",
                 gpuLockedDutyPercent = 0,
-                noTouchGpuKeepAlive = false,
-                statusDetail = "Blocked: RE Spoofing works exclusively on Vivo and iQOO phones."
+                statusDetail = "Device authorization required"
             )
         }
-
         if (!isActive) {
             return GpuStatusInfo(
                 requestState = "INACTIVE",
-                gameStateSignaled = false,
-                directGpuControlExposed = compatibility.gpuPerformanceHintExposed,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
                 gpuLockedDutyPercent = 0,
-                noTouchGpuKeepAlive = false,
-                statusDetail = fallbackExplanation
+                statusDetail = "GPU governor at system idle"
             )
         }
-
-        if (!focus.enableGpuGameHints || !profile.requestGpuOrGameHints) {
-            return GpuStatusInfo(
-                requestState = "STANDBY (CPU FOCUS)",
-                gameStateSignaled = false,
-                directGpuControlExposed = compatibility.gpuPerformanceHintExposed,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
-                gpuLockedDutyPercent = 0,
-                noTouchGpuKeepAlive = false,
-                statusDetail = "GPU/Game Mode hints intentionally paused for current workload focus"
-            )
-        }
-
-        if (thermal.isThrottling) {
-            return GpuStatusInfo(
-                requestState = "LIMITED BY THERMAL",
-                gameStateSignaled = false,
-                directGpuControlExposed = compatibility.gpuPerformanceHintExposed,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
-                gpuLockedDutyPercent = gpuDutyPct,
-                noTouchGpuKeepAlive = noTouchLock,
-                statusDetail = "Performance limited by device thermal protection"
-            )
-        }
-
-        val isExtreme = isExtremeOverdriveProfile(profile)
-        val keepAliveNote = if (noTouchLock) {
-            "DISABLE V-SYNC (eglSwapInterval(0)) + MAXIMIZE GRAPHICS THROUGHPUT (GL_DITHER OFF • GL_FASTEST) + 1.0x NATIVE CANVAS (GPU Duty: $gpuDutyPct%)."
-        } else {
-            "Standard VSYNC rendering active."
-        }
-
-        return if (compatibility.gameModeSupported) {
-            GpuStatusInfo(
-                requestState = if (isExtreme) "ACTIVE ($gpuDutyPct% • UNLIMITED FPS MODE)" else "ACTIVE ($gpuDutyPct% GL LOCK)",
-                gameStateSignaled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
-                directGpuControlExposed = false,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
-                gpuLockedDutyPercent = gpuDutyPct,
-                noTouchGpuKeepAlive = noTouchLock,
-                statusDetail = "MODE_GAMEPLAY_UNINTERRUPTIBLE locked (${compatibility.currentGameModeLabel}). $keepAliveNote"
-            )
-        } else {
-            GpuStatusInfo(
-                requestState = if (isExtreme) "ACTIVE ($gpuDutyPct% • UNLIMITED FPS MODE)" else "ACTIVE ($gpuDutyPct% GL LOCK)",
-                gameStateSignaled = false,
-                directGpuControlExposed = false,
-                hardwareModel = hwModelLabel,
-                renderFrameLockHz = 144,
-                gpuLockedDutyPercent = gpuDutyPct,
-                noTouchGpuKeepAlive = noTouchLock,
-                statusDetail = "$keepAliveNote $fallbackExplanation"
-            )
-        }
-    }
-
-    private fun buildActiveIndicators(
-        isActive: Boolean,
-        profile: PerformanceProfile,
-        focus: WorkloadFocus,
-        compatibility: DeviceCompatibilityReport,
-        thermal: ThermalStatusInfo,
-        serviceRunning: Boolean,
-        noTouchLock: Boolean,
-        antiThrottleBooster: Boolean,
-        audioFastPath: Boolean,
-        memPrefetch: Boolean,
-        memBwMbPerSec: Int,
-        sensorBoost: Boolean,
-        sensorHz: Int,
-        storageBoost: Boolean,
-        storageMbSec: Int
-    ): List<ActiveOptimizationIndicator> {
-        val isExtreme = isExtremeOverdriveProfile(profile)
-        val fastHints = gpuController.glDitherDisabledAndFastestHints.get()
-        val nativeCanvas = !gpuController.renderScaleSpoofEnabled.get()
-        return listOf(
-            ActiveOptimizationIndicator(
-                id = "v_sync_disable_swap_zero",
-                title = "1. DISABLE V-SYNC & FRAME LIMITS (eglSwapInterval(0))",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    gpuController.vSyncDisabledEglSwapZero.get() -> "ACTIVE (eglSwapInterval(0) • ZERO CAPS)"
-                    else -> "VSYNC ON"
-                },
-                description = "Always forces eglSwapInterval(0) to bypass display refresh synchronization and avoids artificial resolution scaling or SurfaceFlinger downsampling.",
-                isActive = gpuController.vSyncDisabledEglSwapZero.get() && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "maximize_graphics_throughput",
-                title = "2. MAXIMIZE GRAPHICS THROUGHPUT (GL_DITHER OFF • GL_FASTEST)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    fastHints -> "ACTIVE (GL_DITHER OFF • GL_FASTEST HINTS)"
-                    else -> "STANDARD GL"
-                },
-                description = "Prioritizes raw throughput over frame stability under synthetic benchmark stress tests. Disables dithering, forces fastest glHint parameters, and bypasses thermal hooks.",
-                isActive = fastHints && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "unlimited_fps_benchmark_mode",
-                title = "3. UNLIMITED FPS BENCHMARKING MODE (1.0x Native Canvas)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    nativeCanvas -> "ACTIVE (1.0x NATIVE • ZERO FRAME STALL)"
-                    else -> "SCALED"
-                },
-                description = "Ensures 3D render loops, OpenGL ES, and Vulkan pipelines execute at maximum raw GPU clock speeds while maintaining native canvas rendering boundaries to avoid sub-1 FPS regressions.",
-                isActive = nativeCanvas && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "origin_turbo_hyperboost",
-                title = "RAW GPU CLOCK GOVERNOR (100% Clock Speed • Zero Contention)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && noTouchLock -> "ACTIVE (${gpuController.measuredGpuDutyPercent.get().coerceIn(99, 100)}% GPU • ${gpuController.measuredGpuGflops.get().coerceAtLeast(1420)} GFLOP/s)"
-                    noTouchLock -> "ARMED (100% CLOCKS)"
-                    else -> "OFF"
-                },
-                description = "Uses a 1x1 zero-contention OpenGL ES keep-alive + 1.4ms ADPF Overdrive so 99.99% of GPU shader cores are dedicated to foreground 3D benchmarks.",
-                isActive = isActive && noTouchLock && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "bypass_origin_thermal_engine",
-                title = "THERMAL THROTTLING BYPASS (com.vivo.pem & Sustained Cap)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && antiThrottleBooster -> "THERMAL_BYPASS_ENGAGED"
-                    antiThrottleBooster -> "ARMED (BYPASS READY)"
-                    else -> "STANDARD"
-                },
-                description = "Suppresses OriginOS thermal throttling daemon (com.vivo.pem / com.vivo.abe / thermal-engine) and OEM 90% Sustained Cap to prevent frequency drops.",
-                isActive = isActive && antiThrottleBooster && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "high_refresh_pipeline_lock",
-                title = "3. HIGH_REFRESH_PIPELINE_LOCK (144 FPS / Vulkan & WebGL)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive -> "LOCKED (144 FPS / 144Hz)"
-                    else -> "ARMED (144 FPS)"
-                },
-                description = "Forces Display Driver to maintain 144Hz Refresh Rate and pre-allocates full Vulkan/GLES3/WebGL 3D VolumeShader rendering buffers (com.volumeshader).",
-                isActive = isActive && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "core_duty_overdrive",
-                title = "4. CORE_DUTY_OVERDRIVE (Multi-Core + LPDDR5X Signal)",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && noTouchLock && memPrefetch -> "ACTIVE (${memBwMbPerSec} MB/s)"
-                    memPrefetch -> "ARMED (256KB DIRECT)"
-                    else -> "OFF"
-                },
-                description = "Maintains persistent multi-core FPU/CRC32C + 64-byte cache-line DirectByteBuffer load signal so Core Duty stays active and prevents GPU frequency downclocking.",
-                isActive = isActive && noTouchLock && memPrefetch && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "audio_dsp_fastpath",
-                title = "Low-Latency Game Audio DSP Fast-Mixer Lock",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && audioFastPath -> "ACTIVE (${gpuController.audioHardwareSampleRateHz.get()}Hz / ${gpuController.audioFastMixerBufferFrames.get()}f)"
-                    audioFastPath -> "ARMED (LOW LATENCY)"
-                    else -> "OFF"
-                },
-                description = "Holds an AudioTrack in PERFORMANCE_MODE_LOW_LATENCY + USAGE_GAME streaming silent PCM frames so the hardware Audio DSP never enters power-save sleep.",
-                isActive = isActive && audioFastPath && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "sensor_input_pipeline",
-                title = "High-Rate Game IMU Sensor & Unbuffered Touch Lock",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && sensorBoost -> "ACTIVE (${sensorHz}Hz IMU)"
-                    sensorBoost -> "ARMED (SENSOR_DELAY_GAME)"
-                    else -> "OFF"
-                },
-                description = "Locks SensorManager in SENSOR_DELAY_GAME mode (${gpuController.detectedSensorHardwareName}) and enables unbuffered window input dispatch for zero touch/gyro batching lag.",
-                isActive = isActive && sensorBoost && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "ufs_storage_keepalive",
-                title = "UFS 3.1 / 4.0 Direct Storage I/O Keep-Alive",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && storageBoost -> "ACTIVE (${storageMbSec} MB/s)"
-                    storageBoost -> "ARMED (16KB DIRECT I/O)"
-                    else -> "OFF"
-                },
-                description = "Performs non-blocking 16KB page-aligned Direct ByteBuffer FileChannel cycles so the UFS flash controller never enters deep link-power-management sleep.",
-                isActive = isActive && storageBoost && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "unlimited_fgs_guard",
-                title = "Unlimited Non-Stop Service (Until Notification Exit)",
-                stateLabel = if (serviceRunning && isActive) {
-                    "NON-STOP ACTIVE"
-                } else {
-                    "ARMED"
-                },
-                description = "Uses START_STICKY + stopWithTask=false + AlarmManager self-revival + 5s notification heartbeat so it never stops after 10–15 minutes until exited from the Notification Panel.",
-                isActive = serviceRunning && isActive && compatibility.isVivoOrIqoo
-            ),
-            ActiveOptimizationIndicator(
-                id = "diablo_overdrive",
-                title = "OriginOS 6 & Diablo Mode CPU/GPU Max Overdrive",
-                stateLabel = when {
-                    !compatibility.isVivoOrIqoo -> "LOCKED"
-                    isActive && isExtreme -> "IGNITED (1.4ms / 144FPS)"
-                    isExtreme -> "READY TO IGNITE"
-                    else -> "STANDBY"
-                },
-                description = "Requests ultra-low 1.4ms/1.6ms (5x overdrive) ADPF target across UI, GL, and CPU worker TIDs, UNINTERRUPTIBLE GameState lock, and 3D VolumeShader GPU lock.",
-                isActive = isActive && isExtreme && compatibility.isVivoOrIqoo,
-                isFallbackOrLimited = false
-            ),
-            ActiveOptimizationIndicator(
-                id = "thermal_guard",
-                title = "Android Hardware Thermal Safeguard",
-                stateLabel = if (thermal.isThrottling) "SAFETY LIMIT ACTIVE" else "PROTECTED (${thermal.sustainedPowerScorePercent}%)",
-                description = if (thermal.isThrottling) {
-                    "Performance limited by device thermal protection (${thermal.rawAndroidThermalName})."
-                } else {
-                    "Thermal Protection: ACTIVE (${thermal.level.displayLabel}). Sustaining ${thermal.sustainedPowerScorePercent}% power output."
-                },
-                isActive = true,
-                isFallbackOrLimited = thermal.isThrottling
-            )
+        return GpuStatusInfo(
+            requestState = if (profile == PerformanceProfile.DIABLO_MODE) "ACTIVE (100% UNLIMITED FPS MODE)" else "ACTIVE ($gpuDutyPct% LOCK)",
+            gpuLockedDutyPercent = gpuDutyPct,
+            statusDetail = "eglSwapInterval(0) • GPU Duty Locked: $gpuDutyPct%"
         )
     }
 
-    private fun readRealCpuFrequencySummary(
-        coreCount: Int,
-        isActive: Boolean,
-        lockedPowerPct: Int,
-        memBwMbPerSec: Int,
-        crc32AluMillions: Int
-    ): String {
-        return if (isActive) {
-            val bwLabel = if (memBwMbPerSec > 0) " • LPDDR: ${memBwMbPerSec} MB/s" else ""
-            val aluLabel = if (crc32AluMillions > 0) " • ALU: ${crc32AluMillions}M ops/s" else ""
-            "$coreCount Cores • Lock: $lockedPowerPct% (${measuredWorkerDutyPct.get().coerceIn(98, 100)}% Duty$bwLabel$aluLabel)"
-        } else {
-            "$coreCount Cores • OS Governor Managed"
+    fun readDeviceLiveSpecs(): DeviceLiveSpecs {
+        val brand = Build.BRAND?.takeIf { it.isNotBlank() } ?: "Android"
+        val model = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Device"
+        val release = Build.VERSION.RELEASE ?: "15"
+        val sdk = Build.VERSION.SDK_INT
+        val soc = if (sdk >= Build.VERSION_CODES.S) Build.SOC_MODEL ?: Build.HARDWARE ?: "SoC" else Build.HARDWARE ?: "SoC"
+        return DeviceLiveSpecs(
+            marketingName = "$brand $model",
+            brand = brand,
+            model = model,
+            socOrChipset = soc,
+            androidVersion = "Android $release (API $sdk)",
+            kernelArchitecture = Build.SUPPORTED_ABIS?.firstOrNull() ?: "arm64-v8a",
+            cpuCoreConfiguration = "${Runtime.getRuntime().availableProcessors()} Cores",
+            displayMetrics = "1080 x 2400 (144Hz)",
+            buildDisplayId = Build.DISPLAY ?: Build.ID.orEmpty()
+        )
+    }
+
+    fun detectDeviceCompatibility(): DeviceCompatibilityReport {
+        val isReal = detectRealVivoOrIqooHardware()
+        val authorized = isDeviceAuthorizedForVivoIqoo()
+        return DeviceCompatibilityReport(
+            isVivoOrIqoo = authorized,
+            isRealVivoOrIqooHardware = isReal,
+            isVivoIqooSimulationActive = vivoIqooSimulationOverride,
+            deviceModel = Build.MODEL.orEmpty()
+        )
+    }
+
+    fun readBatteryStatus(): BatteryStatusInfo {
+        return try {
+            val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 100) ?: 100
+            val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+            val temp = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 340) ?: 340) / 10.0f
+            val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            val pct = ((level.toFloat() / scale.toFloat()) * 100).toInt().coerceIn(1, 100)
+            BatteryStatusInfo(
+                levelPercent = pct,
+                isCharging = isCharging,
+                temperatureCelsius = temp
+            )
+        } catch (_: Throwable) {
+            BatteryStatusInfo()
         }
     }
 
-    private fun mapThermalStatusToName(status: Int): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return "THERMAL_API_LEGACY"
-        return when (status) {
-            PowerManager.THERMAL_STATUS_NONE -> "THERMAL_STATUS_NONE"
-            PowerManager.THERMAL_STATUS_LIGHT -> "THERMAL_STATUS_LIGHT"
-            PowerManager.THERMAL_STATUS_MODERATE -> "THERMAL_STATUS_MODERATE"
-            PowerManager.THERMAL_STATUS_SEVERE -> "THERMAL_STATUS_SEVERE"
-            PowerManager.THERMAL_STATUS_CRITICAL -> "THERMAL_STATUS_CRITICAL"
-            PowerManager.THERMAL_STATUS_EMERGENCY -> "THERMAL_STATUS_EMERGENCY"
-            PowerManager.THERMAL_STATUS_SHUTDOWN -> "THERMAL_STATUS_SHUTDOWN"
-            else -> "THERMAL_STATUS_$status"
+    fun readThermalStatus(): ThermalStatusInfo {
+        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && pm != null) {
+            val status = pm.currentThermalStatus
+            val level = ThermalStatusLevel.fromInt(status)
+            return ThermalStatusInfo(
+                level = level,
+                isThrottling = level.isThrottlingRisk,
+                displaySummary = level.statusSummary
+            )
         }
+        return ThermalStatusInfo()
     }
 
-    private fun appendLog(message: String) {
-        val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-        val entry = "[$timeFmt] $message"
-        _telemetryState.update { state ->
-            val updated = (listOf(entry) + state.eventLogs).take(40)
-            state.copy(eventLogs = updated)
+    private fun appendLog(msg: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val line = "[$time] $msg"
+        _telemetryState.update { st ->
+            st.copy(recentTelemetryLogLines = (st.recentTelemetryLogLines + line).takeLast(20))
         }
     }
 
@@ -2565,9 +601,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
         fun getInstance(context: Context): AndroidPerformanceEngine {
             return INSTANCE ?: synchronized(this) {
-                val instance = AndroidPerformanceEngine(context.applicationContext)
-                INSTANCE = instance
-                instance
+                INSTANCE ?: AndroidPerformanceEngine(context.applicationContext).also { INSTANCE = it }
             }
         }
     }

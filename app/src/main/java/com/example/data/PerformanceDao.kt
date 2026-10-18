@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PerformanceDao {
 
-    @Query("SELECT * FROM associated_games ORDER BY appName ASC")
+    @Query("SELECT * FROM associated_games ORDER BY addedTimestamp DESC")
     fun getAllAssociatedGames(): Flow<List<AssociatedGameEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -21,10 +21,10 @@ interface PerformanceDao {
     @Query("UPDATE associated_games SET lastLaunchedTimestamp = :timestamp WHERE packageName = :packageName")
     suspend fun updateGameLaunchTimestamp(packageName: String, timestamp: Long)
 
-    @Query("SELECT * FROM session_history ORDER BY startTimestampMs DESC LIMIT 30")
+    @Query("SELECT * FROM session_history ORDER BY startTimestampMs DESC LIMIT 20")
     fun getRecentSessionHistory(): Flow<List<SessionHistoryEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert
     suspend fun insertSessionHistory(session: SessionHistoryEntity)
 
     @Query("DELETE FROM session_history")

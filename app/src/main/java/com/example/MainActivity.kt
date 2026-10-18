@@ -1,221 +1,110 @@
 package com.example
 
 import android.Manifest
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.Choreographer
-import android.view.InputDevice
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.engine.AndroidPerformanceEngine
 import com.example.ui.PerformanceViewModel
-import com.example.ui.components.LowBatteryWarningDialog
-import com.example.ui.components.StatusPillBadge
-import com.example.ui.components.VivoBrandingLogo
-import com.example.ui.components.VivoIqooExclusiveLockDialog
+import com.example.ui.screens.CompatibilityScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.GameHubScreen
+import com.example.ui.screens.ProfilesScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.theme.CarbonBorder
 import com.example.ui.theme.CarbonSurface
+import com.example.ui.theme.CobaltDeep
+import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ObsidianBg
+import com.example.ui.theme.RESpoofingTheme
 import com.example.ui.theme.TelemetryGreen
-import com.example.ui.theme.TelemetryRed
 import com.example.ui.theme.TextPrimary
-import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import com.example.ui.theme.TextSecondary
+
+enum class AppNavTab(val title: String, val icon: ImageVector, val tag: String) {
+    DASHBOARD("Dashboard", Icons.Filled.Dashboard, "tab_dashboard"),
+    PROFILES("Modes", Icons.Filled.Speed, "tab_profiles"),
+    GAME_HUB("Game Hub", Icons.Filled.Gamepad, "tab_game_hub"),
+    SETTINGS("Settings", Icons.Filled.Settings, "tab_settings")
+}
 
 class MainActivity : ComponentActivity() {
 
-    override fun onResume() {
-        super.onResume()
-        val engine = AndroidPerformanceEngine.getInstance(applicationContext)
-        engine.setAppForegroundState(true)
-        engine.setTargetWindowHookActive(true, "Foreground Target Window Active")
-        engine.refreshStaticAndDynamicTelemetry()
-    }
+    private val viewModel: PerformanceViewModel by viewModels()
 
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        val engine = AndroidPerformanceEngine.getInstance(applicationContext)
-        if (engine.telemetryState.value.autoRestoreOnMinimizeEnabled) {
-            engine.setTargetWindowHookActive(false, "Home Button / App Minimized")
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        AndroidPerformanceEngine.getInstance(applicationContext).setAppForegroundState(false)
-    }
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted handled gracefully */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         setContent {
-            MyApplicationTheme {
-                val viewModel: PerformanceViewModel = viewModel()
-                val telemetryState by viewModel.telemetryState.collectAsStateWithLifecycle()
-
-                LaunchedEffect(
-                    telemetryState.isSessionActive,
-                    telemetryState.sustainedModeRequestedOnWindow,
-                    telemetryState.isDiabloModeActive,
-                    telemetryState.antiThrottleBoosterEnabled,
-                    telemetryState.noTouchPowerLockEnabled,
-                    telemetryState.minimalPostProcessingDisplayEnabled,
-                    telemetryState.touchSensorBoostEnabled,
-                    telemetryState.compatibility.sustainedPerformanceSupported
-                ) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
-                        telemetryState.compatibility.sustainedPerformanceSupported
-                    ) {
-                        try {
-                            val enableSustainedClamp = telemetryState.sustainedModeRequestedOnWindow &&
-                                !telemetryState.antiThrottleBoosterEnabled
-                            window?.setSustainedPerformanceMode(enableSustainedClamp)
-                        } catch (_: Throwable) {
-                        }
-                    }
-
-                    try {
-                        val win = window
-                        if (win != null) {
-                            if (telemetryState.isSessionActive) {
-                                win.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                                if (telemetryState.touchSensorBoostEnabled) {
-                                    try {
-                                        win.decorView?.requestUnbufferedDispatch(InputDevice.SOURCE_ANY)
-                                    } catch (_: Throwable) {
-                                    }
-                                }
-                            } else {
-                                win.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                            }
-
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                try {
-                                    win.setPreferMinimalPostProcessing(
-                                        telemetryState.isSessionActive && telemetryState.minimalPostProcessingDisplayEnabled
-                                    )
-                                } catch (_: Throwable) {
-                                }
-                            }
-
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                try {
-                                    win.colorMode = if (telemetryState.isSessionActive && telemetryState.minimalPostProcessingDisplayEnabled) {
-                                        ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-                                    } else {
-                                        ActivityInfo.COLOR_MODE_DEFAULT
-                                    }
-                                } catch (_: Throwable) {
-                                }
-                            }
-
-                            val params = win.attributes
-                            if (telemetryState.isSessionActive) {
-                                val peakHz = telemetryState.deviceSpecs.displayRefreshRateHz
-                                    .coerceAtLeast(if (telemetryState.isDiabloModeActive) 165 else 144)
-                                    .toFloat()
-                                params.preferredRefreshRate = peakHz
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                    @Suppress("DEPRECATION")
-                                    val modes = windowManager?.defaultDisplay?.supportedModes
-                                    val bestMode = modes?.maxByOrNull { it.refreshRate }
-                                    if (bestMode != null) {
-                                        params.preferredDisplayModeId = bestMode.modeId
-                                    }
-                                }
-                            } else {
-                                params.preferredRefreshRate = 0f
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                    params.preferredDisplayModeId = 0
-                                }
-                            }
-                            win.attributes = params
-                        }
-                    } catch (_: Throwable) {
-                    }
-                }
-
-                // Real Choreographer VSYNC Frame-Time & Hz Sampler (samples a 2-frame VSYNC delta every 500ms)
-                LaunchedEffect(telemetryState.isSessionActive) {
-                    if (telemetryState.isSessionActive) {
-                        while (isActive) {
-                            try {
-                                val choreographer = Choreographer.getInstance()
-                                var firstFrameNs = 0L
-                                choreographer.postFrameCallback { frameTimeNanos1 ->
-                                    firstFrameNs = frameTimeNanos1
-                                    choreographer.postFrameCallback { frameTimeNanos2 ->
-                                        val deltaNs = (frameTimeNanos2 - firstFrameNs).coerceIn(4_000_000L, 33_333_333L)
-                                        val measuredMs = deltaNs / 1_000_000f
-                                        val measuredFps = (1_000_000_000.0 / deltaNs.toDouble()).roundToInt()
-                                        val peakTargetHz = telemetryState.deviceSpecs.displayRefreshRateHz.coerceAtLeast(60)
-                                        val reportedHz = maxOf(measuredFps, peakTargetHz)
-                                        val reportedMs = minOf(measuredMs, 1000f / reportedHz.toFloat())
-                                        viewModel.updateLiveChoreographerMetrics(reportedHz, reportedMs)
-                                    }
-                                }
-                            } catch (_: Throwable) {
-                                val targetHz = telemetryState.deviceSpecs.displayRefreshRateHz.coerceAtLeast(60)
-                                val frameTimeMs = (1000f / targetHz.toFloat()).coerceIn(6.0f, 16.7f)
-                                viewModel.updateLiveChoreographerMetrics(targetHz, frameTimeMs)
-                            }
-                            delay(500L)
-                        }
-                    }
-                }
-
-                ReSpoofingApp(viewModel = viewModel)
+            RESpoofingTheme {
+                MainAppContent(viewModel = viewModel)
             }
         }
     }
@@ -223,164 +112,175 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReSpoofingApp(viewModel: PerformanceViewModel) {
-    val context = LocalContext.current
-    val telemetryState by viewModel.telemetryState.collectAsStateWithLifecycle()
-    val preferences by viewModel.userPreferences.collectAsStateWithLifecycle()
-    val showLowBatteryDialog by viewModel.showLowBatteryWarningDialog.collectAsStateWithLifecycle()
-    val showVivoIqooLockDialog by viewModel.showVivoIqooLockDialog.collectAsStateWithLifecycle()
-    val bannerMessage by viewModel.uiBannerMessage.collectAsStateWithLifecycle()
+fun MainAppContent(viewModel: PerformanceViewModel) {
+    val telemetryState by viewModel.telemetryState.collectAsState()
+    val preferences by viewModel.userPreferences.collectAsState()
+    val associatedGames by viewModel.associatedGames.collectAsState()
+    val recentSessions by viewModel.recentSessions.collectAsState()
+    val installedApps by viewModel.installedApps.collectAsState()
+    val bannerMessage by viewModel.uiBannerMessage.collectAsState()
 
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        viewModel.requestStartPerformanceMode()
-    }
-
-    val startActionWithNotificationCheck = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                viewModel.requestStartPerformanceMode()
-            }
-        } else {
-            viewModel.requestStartPerformanceMode()
-        }
-    }
-
-    val openCustomLogoPicker = {}
-
-    LaunchedEffect(bannerMessage) {
-        val msg = bannerMessage
-        if (!msg.isNullOrBlank()) {
-            snackbarHostState.showSnackbar(msg)
-            viewModel.clearBannerMessage()
-        }
-    }
-
-    if (showVivoIqooLockDialog) {
-        VivoIqooExclusiveLockDialog(
-            detectedManufacturer = telemetryState.compatibility.manufacturer,
-            detectedModel = telemetryState.compatibility.deviceModel,
-            onEnableVivoIqooTestMode = { viewModel.enableVivoIqooEmulatorModeAndStart() },
-            onDismiss = { viewModel.dismissVivoIqooLockDialog() }
-        )
-    }
-
-    if (showLowBatteryDialog) {
-        LowBatteryWarningDialog(
-            batteryPercent = telemetryState.batteryStatus.levelPercent,
-            onConfirm = { viewModel.confirmLowBatteryStart() },
-            onDismiss = { viewModel.dismissLowBatteryWarning() }
-        )
-    }
+    var selectedTab by rememberSaveable { mutableStateOf(AppNavTab.DASHBOARD) }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = ObsidianBg,
-        contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        VivoBrandingLogo(
-                            customLogoUri = preferences.customLogoUri,
-                            size = 36.dp,
-                            isSessionActive = telemetryState.isSessionActive
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "RE SPOOFING",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
-                        Column {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (telemetryState.isSessionActive) DiabloRed else CarbonBorder
+                        ) {
                             Text(
-                                text = "RE Spoofing",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "OriginOS & FuntouchOS • Universal Engine",
+                                text = if (telemetryState.isSessionActive) "100% LOCKED" else "STANDBY",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFFFB300)
+                                color = TextPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 },
-                actions = {
-                    StatusPillBadge(
-                        text = when {
-                            telemetryState.isSessionActive && telemetryState.originOs6OverdriveEnabled -> "144 FPS • ${telemetryState.lockedPowerPercent.coerceIn(98, 100)}%"
-                            telemetryState.isSessionActive -> "${telemetryState.lockedPowerPercent.coerceIn(97, 100)}% LOCKED"
-                            else -> "144 FPS ARMED"
-                        },
-                        color = when {
-                            telemetryState.isSessionActive -> TelemetryGreen
-                            else -> ElectricCyan
-                        },
-                        testTag = "top_bar_status_pill"
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = { viewModel.refreshTelemetry() },
-                        modifier = Modifier.testTag("refresh_telemetry_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Refresh Telemetry",
-                            tint = ElectricCyan
-                        )
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = CarbonSurface,
-                    titleContentColor = TextPrimary
+                    containerColor = ObsidianBg
                 )
             )
-        }
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = CarbonSurface,
+                modifier = Modifier.border(1.dp, CarbonBorder)
+            ) {
+                AppNavTab.entries.forEach { tab ->
+                    val isSelected = selectedTab == tab
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { selectedTab = tab },
+                        icon = {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.title,
+                                tint = if (isSelected) ElectricCyan else TextSecondary
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = tab.title,
+                                color = if (isSelected) ElectricCyan else TextSecondary,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = CobaltDeep
+                        ),
+                        modifier = Modifier.testTag(tab.tag)
+                    )
+                }
+            }
+        },
+        containerColor = ObsidianBg
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.TopCenter
+                .padding(innerPadding)
         ) {
-            DashboardScreen(
-                state = telemetryState,
-                customLogoUri = preferences.customLogoUri,
-                onStartClicked = startActionWithNotificationCheck,
-                onStopClicked = { viewModel.stopPerformanceMode() },
-                onQuickProfileSelect = { viewModel.selectProfile(it) },
-                onOpenLogoPicker = openCustomLogoPicker,
-                onToggleVivoIqooSimulation = { viewModel.toggleVivoIqooEmulatorSimulation(it) },
-                onToggleOriginOs6Overdrive = { viewModel.toggleOriginOs6Overdrive(it) },
-                onToggleGlDitherAndFastestHints = { viewModel.toggleGlDitherDisabledAndFastestHints(it) },
-                onToggleTargetWindowHookState = { viewModel.toggleTargetWindowHookState(it) },
-                onToggleAutoRestoreOnMinimize = { viewModel.toggleAutoRestoreOnMinimize(it) },
-                onToggleRenderScaleSpoof = { viewModel.toggleRenderScaleSpoof(it) },
-                onToggleVSyncDisableSwapZero = { viewModel.toggleVSyncDisableEglSwapZero(it) },
-                onLaunchVolumeShaderPipeline = { viewModel.launchVolumeShaderBenchmarkPipeline() },
-                onToggleNoTouchPowerLock = { viewModel.toggleNoTouchPowerLock(it) },
-                onToggleAntiThrottleBooster = { viewModel.toggleAntiThrottleBooster(it) },
-                onToggleVivoGameCenterPulse = { viewModel.toggleVivoGameCenterInstantPulse(it) },
-                onToggleLowLatencyAudioDspLock = { viewModel.toggleLowLatencyAudioDspLock(it) },
-                onToggleMemoryBandwidthPrefetch = { viewModel.toggleMemoryBandwidthPrefetch(it) },
-                onToggleMinimalPostProcessingDisplay = { viewModel.toggleMinimalPostProcessingDisplay(it) },
-                onToggleTouchSensorBoost = { viewModel.toggleTouchSensorBoost(it) },
-                onToggleStorageIoBoost = { viewModel.toggleStorageIoBoost(it) },
-                onActivateAllMaxHardwareNow = { viewModel.activateAllMaxHardwareSubsystemsNow() },
-                onPurgeBackgroundAppsNow = { viewModel.purgeBackgroundAppsNow() },
+            when (selectedTab) {
+                AppNavTab.DASHBOARD -> {
+                    DashboardScreen(
+                        state = telemetryState,
+                        onStartPerformanceMode = { viewModel.startPerformanceMode() },
+                        onStopPerformanceMode = { viewModel.stopPerformanceMode() },
+                        onSelectProfile = { viewModel.selectProfile(it) }
+                    )
+                }
+                AppNavTab.PROFILES -> {
+                    ProfilesScreen(
+                        state = telemetryState,
+                        recentSessions = recentSessions,
+                        onSelectProfile = { viewModel.selectProfile(it) },
+                        onSelectWorkloadFocus = { viewModel.selectWorkloadFocus(it) },
+                        onClearHistory = { viewModel.clearSessionHistory() }
+                    )
+                }
+                AppNavTab.GAME_HUB -> {
+                    GameHubScreen(
+                        associatedGames = associatedGames,
+                        installedApps = installedApps,
+                        onAssociateGame = { pkg, name, prof, focus ->
+                            viewModel.addGameAssociation(pkg, name, prof, focus)
+                        },
+                        onRemoveGame = { viewModel.removeGameAssociation(it) },
+                        onLaunchGameWithProfile = { viewModel.launchGameWithProfile(it) }
+                    )
+                }
+                AppNavTab.SETTINGS -> {
+                    SettingsScreen(
+                        preferences = preferences,
+                        onToggleBatteryWarning = { viewModel.updateBatteryWarning(it) },
+                        onToggleBootRestore = { viewModel.updateBootRestore(it) },
+                        onToggleAutoStart = { viewModel.updateAutoStartMaxPower(it) }
+                    )
+                }
+            }
+
+            // Top Banner Message Overlay
+            AnimatedVisibility(
+                visible = bannerMessage != null,
+                enter = slideInVertically(initialOffsetY = { -it }),
+                exit = slideOutVertically(targetOffsetY = { -it }),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 680.dp)
-            )
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                bannerMessage?.let { msg ->
+                    Surface(
+                        color = CarbonSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.2.dp, ElectricCyan),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.dismissBanner() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = "Info",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { viewModel.dismissBanner() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

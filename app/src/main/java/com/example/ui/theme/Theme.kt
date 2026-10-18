@@ -1,40 +1,30 @@
 package com.example.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
-private val VivoPerformanceColorScheme = darkColorScheme(
-    primary = ElectricCyan,
-    onPrimary = Color(0xFF001F26),
-    primaryContainer = CobaltDeep,
-    onPrimaryContainer = TextPrimary,
-    secondary = CobaltTurbo,
-    onSecondary = Color.White,
-    secondaryContainer = CarbonSurfaceElevated,
-    onSecondaryContainer = TextPrimary,
+private val DarkColorScheme = darkColorScheme(
+    primary = DiabloRed,
+    secondary = ElectricCyan,
     tertiary = TelemetryGreen,
-    onTertiary = Color(0xFF00210E),
-    error = TelemetryRed,
-    onError = Color.White,
     background = ObsidianBg,
-    onBackground = TextPrimary,
     surface = CarbonSurface,
-    onSurface = TextPrimary,
-    surfaceVariant = CarbonSurfaceElevated,
-    onSurfaceVariant = TextSecondary,
-    outline = CarbonBorder
+    onPrimary = TextPrimary,
+    onSecondary = ObsidianBg,
+    onTertiary = ObsidianBg,
+    onBackground = TextPrimary,
+    onSurface = TextPrimary
 )
 
 @Composable
-fun MyApplicationTheme(
-    darkTheme: Boolean = true,
-    dynamicColor: Boolean = false,
+fun RESpoofingTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = VivoPerformanceColorScheme,
+        colorScheme = DarkColorScheme,
         typography = Typography,
         content = content
     )

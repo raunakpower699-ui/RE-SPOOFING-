@@ -21,10 +21,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -51,24 +51,18 @@ import com.example.data.AssociatedGameEntity
 import com.example.model.InstalledAppItem
 import com.example.model.PerformanceProfile
 import com.example.model.WorkloadFocus
-import com.example.ui.components.StatusPillBadge
 import com.example.ui.theme.CarbonBorder
 import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.CarbonSurfaceElevated
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.CobaltTurbo
+import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.TelemetryGreen
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
-/**
- * Game Launch Support (Section 14):
- * Allows the user to select games/apps installed on the device and associate them with
- * Vivo Spoofing's supported performance/game-mode configuration.
- * Strictly zero code injection, zero APK modification, and zero anti-cheat hooking.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GameHubScreen(
@@ -79,7 +73,7 @@ fun GameHubScreen(
     onLaunchGameWithProfile: (AssociatedGameEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedProfile by remember { mutableStateOf(PerformanceProfile.GAMING) }
+    var selectedProfile by remember { mutableStateOf(PerformanceProfile.DIABLO_MODE) }
     var selectedFocus by remember { mutableStateOf(WorkloadFocus.COMBINED_MAX) }
     var customGameName by rememberSaveable { mutableStateOf("") }
     var customPackageName by rememberSaveable { mutableStateOf("") }
@@ -95,26 +89,26 @@ fun GameHubScreen(
             .background(ObsidianBg)
             .testTag("game_hub_screen"),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             Column {
                 Text(
-                    text = "GAME LAUNCH HUB",
+                    text = "GAME & BENCHMARK LAUNCH HUB",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Associate installed games with a dedicated Performance Profile. Launching from Game Hub starts the Foreground Performance Service and opens the game via standard Android intents.",
+                    text = "Associate any game or benchmark with Diablo Mode. Launching from Game Hub locks 100% hardware duty and opens the app.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
             }
         }
 
-        // Anti-Cheat & Security Compliance Banner
+        // Compliance Banner
         item {
             Surface(
                 color = CarbonSurface,
@@ -128,13 +122,13 @@ fun GameHubScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Security,
-                        contentDescription = "Legitimate Launch Guarantee",
+                        contentDescription = "Safe",
                         tint = TelemetryGreen,
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Anti-Cheat Safe: Vivo Spoofing never injects code into games, never modifies game APKs, and never hooks protected processes.",
+                        text = "Anti-Cheat Safe: Uses standard Android Performance & Game Mode APIs. Zero APK modification or game hooking.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -142,7 +136,7 @@ fun GameHubScreen(
             }
         }
 
-        // Default Profile Configuration for New Game Association
+        // Add Game Association Card
         item {
             Card(
                 modifier = Modifier
@@ -153,7 +147,7 @@ fun GameHubScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "ASSOCIATION PROFILE PRESET",
+                        text = "ASSOCIATE GAME / APP",
                         style = MaterialTheme.typography.labelLarge,
                         color = ElectricCyan
                     )
@@ -183,41 +177,8 @@ fun GameHubScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "WORKLOAD FOCUS PRESET",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        WorkloadFocus.entries.forEach { focus ->
-                            val selected = selectedFocus == focus
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selected) CarbonSurfaceElevated else ObsidianBg,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (selected) CobaltTurbo else CarbonBorder
-                                ),
-                                modifier = Modifier.clickable { selectedFocus = focus }
-                            ) {
-                                Text(
-                                    text = focus.title,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) ElectricCyan else TextSecondary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Add Custom or Installed App
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -225,20 +186,16 @@ fun GameHubScreen(
                         OutlinedTextField(
                             value = customGameName,
                             onValueChange = { customGameName = it },
-                            label = { Text("Game / App Title") },
+                            label = { Text("App / Game Name") },
                             singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("game_title_input")
+                            modifier = Modifier.weight(1f).testTag("game_title_input")
                         )
                         OutlinedTextField(
                             value = customPackageName,
                             onValueChange = { customPackageName = it },
-                            label = { Text("Package Name") },
+                            label = { Text("Package (e.g. com.tencent.ig)") },
                             singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("game_package_input")
+                            modifier = Modifier.weight(1f).testTag("game_package_input")
                         )
                     }
 
@@ -266,23 +223,19 @@ fun GameHubScreen(
                                 containerColor = ElectricCyan,
                                 contentColor = ObsidianBg
                             ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("add_custom_game_button")
+                            modifier = Modifier.weight(1f).testTag("add_custom_game_button")
                         ) {
-                            Icon(imageVector = Icons.Filled.Add, contentDescription = "Add Game")
+                            Icon(imageVector = Icons.Filled.Add, contentDescription = "Add")
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Associate Game", fontWeight = FontWeight.Bold)
+                            Text("Associate App", fontWeight = FontWeight.Bold)
                         }
 
                         OutlinedButton(
                             onClick = { showInstalledPicker = !showInstalledPicker },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("toggle_installed_apps_button")
+                            modifier = Modifier.weight(1f).testTag("toggle_installed_apps_button")
                         ) {
                             Text(
-                                text = if (showInstalledPicker) "Hide Installed Apps" else "Pick Installed App (${installedApps.size})",
+                                text = if (showInstalledPicker) "Hide Apps" else "Pick Installed (${installedApps.size})",
                                 color = ElectricCyan
                             )
                         }
@@ -291,17 +244,17 @@ fun GameHubScreen(
             }
         }
 
-        // Installed Device Apps Picker
+        // Installed Apps Picker
         if (showInstalledPicker) {
             item {
                 Text(
-                    text = "INSTALLED DEVICE APPLICATIONS",
+                    text = "INSTALLED DEVICE APPS",
                     style = MaterialTheme.typography.labelLarge,
                     color = ElectricCyan
                 )
             }
             items(installedApps.take(25), key = { "installed_${it.packageName}" }) { app ->
-                val alreadyAssociated = associatedPackageSet.contains(app.packageName)
+                val already = associatedPackageSet.contains(app.packageName)
                 Surface(
                     color = CarbonSurface,
                     shape = RoundedCornerShape(12.dp),
@@ -335,14 +288,13 @@ fun GameHubScreen(
                                     selectedFocus
                                 )
                             },
-                            enabled = !alreadyAssociated,
+                            enabled = !already,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = CobaltTurbo,
-                                contentColor = TextPrimary
-                            ),
-                            modifier = Modifier.testTag("associate_installed_${app.packageName}")
+                                containerColor = if (already) CarbonSurfaceElevated else ElectricCyan,
+                                contentColor = if (already) TextSecondary else ObsidianBg
+                            )
                         ) {
-                            Text(if (alreadyAssociated) "Added" else "Add")
+                            Text(if (already) "Added" else "Add")
                         }
                     }
                 }
@@ -352,64 +304,28 @@ fun GameHubScreen(
         // Associated Games List
         item {
             Text(
-                text = "ASSOCIATED GAMES (${associatedGames.size})",
+                text = "ASSOCIATED LAUNCH TARGETS (${associatedGames.size})",
                 style = MaterialTheme.typography.labelLarge,
                 color = ElectricCyan
             )
         }
 
-        if (associatedGames.isEmpty()) {
-            item {
-                Surface(
-                    color = CarbonSurface,
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CarbonBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.SportsEsports,
-                            contentDescription = null,
-                            tint = CobaltTurbo,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No games associated yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Pick an installed application above or enter a game package to bind it to Vivo Spoofing's GAMING or PERFORMANCE profile.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                    }
-                }
-            }
-        } else {
-            items(associatedGames, key = { it.packageName }) { game ->
-                AssociatedGameCard(
-                    game = game,
-                    onLaunch = { onLaunchGameWithProfile(game) },
-                    onRemove = { onRemoveGame(game.packageName) }
-                )
-            }
+        items(associatedGames, key = { it.packageName }) { game ->
+            AssociatedGameItemCard(
+                game = game,
+                onLaunch = { onLaunchGameWithProfile(game) },
+                onRemove = { onRemoveGame(game.packageName) }
+            )
         }
 
         item {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun AssociatedGameCard(
+private fun AssociatedGameItemCard(
     game: AssociatedGameEntity,
     onLaunch: () -> Unit,
     onRemove: () -> Unit
@@ -417,71 +333,49 @@ private fun AssociatedGameCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CobaltTurbo.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            .testTag("associated_game_${game.packageName}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CarbonSurfaceElevated)
+            .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CarbonSurface)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = game.appName,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = game.appName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${game.packageName} • Mode: ${game.profileId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ElectricCyan
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = onLaunch,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DiabloRed,
+                        contentColor = TextPrimary
                     )
-                    Text(
-                        text = game.packageName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
-                }
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.testTag("remove_game_${game.packageName}")
                 ) {
+                    Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = "Launch")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Launch", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(onClick = onRemove) {
                     Icon(
-                        imageVector = Icons.Filled.DeleteOutline,
-                        contentDescription = "Remove associated game",
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Remove",
                         tint = TextSecondary
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPillBadge(text = "Profile: ${game.profileId}", color = ElectricCyan)
-                StatusPillBadge(text = "Focus: ${game.workloadFocusId}", color = CobaltTurbo)
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = onLaunch,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ElectricCyan,
-                    contentColor = ObsidianBg
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("launch_game_${game.packageName}")
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.RocketLaunch,
-                    contentDescription = "Launch with Performance Mode"
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "START PERFORMANCE MODE & LAUNCH",
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
     }
