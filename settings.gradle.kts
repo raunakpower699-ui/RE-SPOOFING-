@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RE Spoofing"
+rootProject.name = "Raunak Exploits"
 include(":app")

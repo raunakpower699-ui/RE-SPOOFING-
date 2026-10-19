@@ -28,8 +28,6 @@ import androidx.compose.ui.unit.dp
 import com.example.data.UserPreferencesEntity
 import com.example.ui.theme.CarbonBorder
 import com.example.ui.theme.CarbonSurface
-import com.example.ui.theme.CobaltDeep
-import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.TextPrimary
@@ -54,14 +52,14 @@ fun SettingsScreen(
         item {
             Column {
                 Text(
-                    text = "SETTINGS & SYSTEM DEFAULTS",
+                    text = "SETTINGS & SYSTEM BEHAVIOR",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Configure engine auto-start, battery warnings, and boot behavior.",
+                    text = "Configure boot restore, auto-start, and thermal safeguard notifications.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -69,116 +67,98 @@ fun SettingsScreen(
         }
 
         item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, CarbonBorder, RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CarbonSurface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "ENGINE AUTOMATION",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = ElectricCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+            SettingsToggleCard(
+                title = "Thermal & Battery Warning Banner",
+                description = "Shows a warning banner when device temperature reaches 45°C or higher.",
+                checked = preferences.batteryProtectionWarningEnabled,
+                onCheckedChange = onToggleBatteryWarning
+            )
+        }
 
-                    SettingSwitchRow(
-                        title = "Auto-Start Diablo Mode on Launch",
-                        subtitle = "Immediately locks 100% CPU and GPU duty when app opens",
-                        checked = preferences.autoStartMaxPowerOnLaunch,
-                        onCheckedChange = onToggleAutoStart,
-                        testTag = "switch_auto_start"
-                    )
+        item {
+            SettingsToggleCard(
+                title = "Auto-Restore on Device Boot",
+                description = "Automatically restores the last active performance profile after device reboots.",
+                checked = preferences.autoRestoreOnBoot,
+                onCheckedChange = onToggleBootRestore
+            )
+        }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    SettingSwitchRow(
-                        title = "Remember Preference on Boot",
-                        subtitle = "Restores selected tuning profile after device reboot",
-                        checked = preferences.rememberPreferenceOnBoot,
-                        onCheckedChange = onToggleBootRestore,
-                        testTag = "switch_boot_restore"
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    SettingSwitchRow(
-                        title = "Low Battery High-Temp Warning",
-                        subtitle = "Alert when battery drops below 15% or reaches 45°C",
-                        checked = preferences.warnOnLowBattery,
-                        onCheckedChange = onToggleBatteryWarning,
-                        testTag = "switch_battery_warning"
-                    )
-                }
-            }
+        item {
+            SettingsToggleCard(
+                title = "Auto-Start Diablo Mode on App Launch",
+                description = "Immediately engages 100% compute duty lock as soon as RE Spoofing opens.",
+                checked = preferences.autoStartMaxPowerOnLaunch,
+                onCheckedChange = onToggleAutoStart
+            )
         }
 
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, CarbonBorder, RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
+                    .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = CarbonSurface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "BRANDING & ENGINE CORE",
+                        text = "ABOUT RE SPOOFING",
                         style = MaterialTheme.typography.labelLarge,
-                        color = DiabloRed,
-                        fontWeight = FontWeight.Bold
+                        color = ElectricCyan
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Engine: Raunak Exploits Performance Suite v2.0",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Featuring Diablo Mode (100% Unclamped CPU/GPU Floor Lock), Balance Mode (70%), and Saving Mode (25%).",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Version 1.0.0 (Diablo Engine Build)\nPure Kotlin + Jetpack Compose + Modern Architecture.",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
                 }
             }
         }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
     }
 }
 
 @Composable
-private fun SettingSwitchRow(
+private fun SettingsToggleCard(
     title: String,
-    subtitle: String,
+    description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    testTag: String
+    onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CarbonSurface)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.Bold)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = TextPrimary,
+                    checkedTrackColor = ElectricCyan
+                )
+            )
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = ElectricCyan,
-                checkedTrackColor = CobaltDeep
-            ),
-            modifier = Modifier.testTag(testTag)
-        )
     }
 }

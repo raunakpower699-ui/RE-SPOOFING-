@@ -1,11 +1,5 @@
 package com.example.model
 
-/**
- * Supported performance profiles:
- * - DIABLO_MODE: 100% Unclamped CPU & GPU Lock, Anti-Throttle, Max Performance.
- * - BALANCE_MODE: 70% Target Floor, Optimal Gaming & Thermals.
- * - SAVING_MODE: 25% Throttled Floor, Battery Saver & Rapid Cool-Down.
- */
 enum class PerformanceProfile(
     val id: String,
     val title: String,
@@ -41,7 +35,7 @@ enum class PerformanceProfile(
     ),
     SAVING_MODE(
         id = "SAVING_MODE",
-        title = "Saving Mode",
+        title = "Battery Saving Mode",
         subtitle = "Battery Saver • Thermal Cool-Down (25% Target)",
         description = "Energy saving and thermal cool-down profile. Throttles CPU and GPU to ~25%, cools down hardware rapidly after heavy runs, caps screen refresh to 60Hz, and extends battery life.",
         requestCpuHints = false,
@@ -61,7 +55,7 @@ enum class PerformanceProfile(
         fun fromId(id: String?): PerformanceProfile {
             return when (id?.uppercase()) {
                 "DIABLO_MODE", "ORIGINOS_6_OVERDRIVE", "GAMING", "PERFORMANCE", "SUSTAINED_PERFORMANCE" -> DIABLO_MODE
-                "SAVING_MODE", "SAVING" -> SAVING_MODE
+                "SAVING_MODE", "SAVING", "BATTERY_SAVING_MODE", "BATTERY_SAVER" -> SAVING_MODE
                 "BALANCE_MODE", "BALANCED" -> BALANCE_MODE
                 else -> DIABLO_MODE
             }
@@ -79,183 +73,130 @@ enum class WorkloadFocus(
 ) {
     COMBINED_MAX(
         id = "COMBINED_MAX",
-        title = "Combined CPU + GPU Lock",
-        summary = "Highest supported overall performance mode (100% Lock)",
-        detail = "Simultaneously locks multi-core CPU FPU/CRC32C + ADPF hints, LPDDR memory bus, Audio DSP, Sensors, UFS I/O, and OpenGL ES 3.0/2.0 at 100%.",
+        title = "Combined Max",
+        summary = "CPU & GPU full compute priority",
+        detail = "Pins both CPU clusters and GPU rendering pipeline to maximize overall benchmark scores and competitive gaming frame pacing.",
         enableCpuHints = true,
         enableGpuGameHints = true
     ),
-    CPU_PRIMARY(
-        id = "CPU_PRIMARY",
-        title = "CPU Workload Priority",
-        summary = "Prioritize CPU hints • Avoid unnecessary GPU activity",
-        detail = "Focuses exclusively on multi-core CPU PerformanceHintManager thread scheduling, FPU/CRC32C ALU, and anti-throttle stability.",
-        enableCpuHints = true,
-        enableGpuGameHints = false
-    ),
-    GPU_PRIMARY(
-        id = "GPU_PRIMARY",
-        title = "GPU / Game Priority",
-        summary = "Prioritize GPU & Game Mode hints • Avoid extra CPU hints",
-        detail = "Prioritizes Android Game Mode, 3D OpenGL ES/Vulkan pipeline, and eglSwapInterval = 0 unlocked frame pacing.",
+    GPU_FOCUS(
+        id = "GPU_FOCUS",
+        title = "GPU Focused",
+        summary = "Sustained frame pacing & raw shader throughput",
+        detail = "Prioritizes GPU clock locking and V-Sync bypass (eglSwapInterval 0) for demanding 3D games and emulators.",
         enableCpuHints = false,
         enableGpuGameHints = true
+    ),
+    CPU_FOCUS(
+        id = "CPU_FOCUS",
+        title = "CPU Multi-Core",
+        summary = "Prime & Gold core frequency saturation",
+        detail = "Forces high frequency on Prime and Gold cores, bypassing low-power Silver governor throttling for physics and compute.",
+        enableCpuHints = true,
+        enableGpuGameHints = false
     );
 
     companion object {
         fun fromId(id: String?): WorkloadFocus {
-            return entries.find { it.id == id } ?: COMBINED_MAX
-        }
-    }
-}
-
-enum class ThermalStatusLevel(
-    val displayLabel: String,
-    val statusSummary: String,
-    val isSevereOrCritical: Boolean,
-    val isThrottlingRisk: Boolean
-) {
-    NONE("NOMINAL (STABLE)", "Hardware operating within cool thermal parameters. Full boost available.", false, false),
-    LIGHT("ELEVATED (NORMAL)", "Moderate surface temperature rise. Governor floor holds 100%.", false, false),
-    MODERATE("WARM (BOOSTED)", "Active heat dissipation ongoing. Anti-throttle booster holds clocks high.", false, false),
-    SEVERE("HOT (MITIGATED)", "Thermal floor protection engaging. Anti-throttle booster active.", true, true),
-    CRITICAL("CRITICAL (PROTECTED)", "Maximum sustained emergency cooling.", true, true),
-    EMERGENCY("EMERGENCY SHUTDOWN", "Device thermal threshold reached. Auto-throttle protection active.", true, true),
-    SHUTDOWN("HARDWARE SHUTDOWN", "Shutdown imminent.", true, true);
-
-    companion object {
-        fun fromInt(value: Int): ThermalStatusLevel {
-            return when (value) {
-                0 -> NONE
-                1 -> LIGHT
-                2 -> MODERATE
-                3 -> SEVERE
-                4 -> CRITICAL
-                5 -> EMERGENCY
-                6 -> SHUTDOWN
-                else -> NONE
+            return when (id?.uppercase()) {
+                "GPU_FOCUS" -> GPU_FOCUS
+                "CPU_FOCUS" -> CPU_FOCUS
+                else -> COMBINED_MAX
             }
         }
     }
 }
 
+enum class DeviceHardwareTier(val displayName: String, val badgeColorHex: String) {
+    FLAGSHIP_TIER("Flagship Tier (Extreme Ready)", "#FF2A4D"),
+    HIGH_PERF_TIER("High Performance Tier", "#00E5FF"),
+    STANDARD_TIER("Standard Tier", "#00E676");
+}
+
+data class DeviceLiveSpecs(
+    val marketingName: String = "Android Device",
+    val brand: String = "Android",
+    val model: String = "Device",
+    val socOrChipset: String = "High Performance SoC",
+    val androidVersion: String = "Android 15",
+    val kernelArchitecture: String = "arm64-v8a",
+    val cpuCoreConfiguration: String = "8 Cores (1 Prime + 3 Gold + 4 Silver)",
+    val displayMetrics: String = "1080 x 2400 (144Hz)",
+    val buildDisplayId: String = ""
+) {
+    val phoneDisplayName: String
+        get() {
+            val raw = if (brand.isNotBlank() && model.isNotBlank()) "$brand $model" else "Gaming Device"
+            if (raw.contains("sdk", ignoreCase = true) || raw.contains("gphone", ignoreCase = true) || raw.contains("goldfish", ignoreCase = true) || raw.contains("google", ignoreCase = true) || raw.contains("emulator", ignoreCase = true)) {
+                return "Extreme Gaming Core • Performance Tuned"
+            }
+            return raw.replaceFirstChar { it.uppercase() }
+        }
+
+    val androidVersionLabel: String
+        get() = androidVersion
+}
+
+enum class ThermalStatusLevel(val intValue: Int, val isThrottlingRisk: Boolean, val statusSummary: String) {
+    NONE(0, false, "Nominal / Cool"),
+    LIGHT(1, false, "Light Thermal Rise"),
+    MODERATE(2, false, "Moderate Heat"),
+    SEVERE(3, true, "Severe Warning (Throttling Protected)"),
+    CRITICAL(4, true, "Critical (Bypass Safeguard Active)"),
+    EMERGENCY(5, true, "Emergency Cutoff"),
+    SHUTDOWN(6, true, "Hardware Shutdown Trigger");
+
+    companion object {
+        fun fromInt(value: Int): ThermalStatusLevel {
+            return entries.firstOrNull { it.intValue == value } ?: NONE
+        }
+    }
+}
+
+data class ThermalStatusInfo(
+    val level: ThermalStatusLevel = ThermalStatusLevel.NONE,
+    val isThrottling: Boolean = false,
+    val displaySummary: String = "Nominal / Cool"
+)
+
 data class BatteryStatusInfo(
-    val levelPercent: Int = 100,
+    val levelPercent: Int = 85,
     val isCharging: Boolean = false,
-    val temperatureCelsius: Float = 34.0f,
-    val voltageMv: Int = 4200,
-    val health: String = "Good",
-    val isLowBatteryWarning: Boolean = false
+    val temperatureCelsius: Float = 34.0f
 )
 
 data class CpuStatusInfo(
     val requestState: String = "INACTIVE",
     val hintSessionActive: Boolean = false,
-    val coreCount: Int = 8,
-    val activeBoosterThreads: Int = 0,
-    val preferredUpdateRateNanos: Long = 16_666_666L,
     val targetDurationNanos: Long = 1_000_000L,
-    val architecture: String = "arm64-v8a",
-    val readableFrequenciesSummary: String = "Standard CPU Clocks",
     val powerStabilityPercent: Int = 0,
-    val noTouchLockActive: Boolean = false,
-    val statusDetail: String = "System default CPU scheduler active"
+    val statusDetail: String = "Ready"
 )
 
 data class GpuStatusInfo(
     val requestState: String = "INACTIVE",
-    val gameStateSignaled: Boolean = false,
-    val directGpuControlExposed: Boolean = false,
-    val hardwareModel: String = "Adreno / Mali GPU",
-    val renderFrameLockHz: Int = 144,
     val gpuLockedDutyPercent: Int = 0,
-    val noTouchGpuKeepAlive: Boolean = false,
-    val statusDetail: String = "System default GPU governor active"
+    val statusDetail: String = "Idle"
 )
-
-data class ThermalStatusInfo(
-    val level: ThermalStatusLevel = ThermalStatusLevel.NONE,
-    val headroomRatio: Float? = null,
-    val isThrottling: Boolean = false,
-    val displaySummary: String = "Thermals nominal • Full 100% boost available"
-)
-
-data class DeviceLiveSpecs(
-    val marketingName: String = "Android Device",
-    val brand: String = "Android",
-    val model: String = "Model",
-    val socOrChipset: String = "Snapdragon / Dimensity",
-    val androidVersion: String = "Android 15 (API 35)",
-    val kernelArchitecture: String = "arm64-v8a",
-    val cpuCoreConfiguration: String = "8 Cores (Prime + Gold + Silver)",
-    val totalRamString: String = "12.0 GB",
-    val availableRamString: String = "7.8 GB",
-    val totalInternalStorage: String = "256 GB",
-    val availableInternalStorage: String = "180 GB",
-    val displayMetrics: String = "1080 x 2400 (144Hz HDR)",
-    val buildDisplayId: String = "Build"
-) {
-    val phoneDisplayName: String get() = "$brand $model ($marketingName)"
-    val androidVersionLabel: String get() = androidVersion
-    val cpuCores: Int get() = 8
-}
-
-enum class DeviceHardwareTier(
-    val code: String,
-    val shortLabel: String,
-    val description: String,
-    val peakTargetGflops: Int
-) {
-    ULTRA_FLAGSHIP("ULTRA", "Ultra Tier", "Flagship Processor with maximum compute capability", 2400),
-    PREMIUM_HIGH("PREMIUM", "Premium Tier", "High-End Processor with robust compute capability", 1800),
-    MID_BALANCED("MID", "Balanced Tier", "Balanced Processor for solid gaming and multitasking", 1400);
-
-    companion object {
-        fun detect(cores: Int, totalRamGb: Double, soc: String, model: String): DeviceHardwareTier {
-            val upper = "$soc $model".uppercase()
-            return when {
-                upper.contains("8 GEN") || upper.contains("9300") || upper.contains("9400") || totalRamGb >= 11.5 -> ULTRA_FLAGSHIP
-                upper.contains("7+") || upper.contains("870") || upper.contains("888") || upper.contains("8200") || totalRamGb >= 7.5 -> PREMIUM_HIGH
-                else -> MID_BALANCED
-            }
-        }
-    }
-}
 
 data class DeviceCompatibilityReport(
-    val androidRelease: String = "15",
-    val sdkInt: Int = 35,
-    val manufacturer: String = "Android",
-    val brand: String = "Android",
-    val deviceModel: String = "Device",
-    val socOrHardware: String = "Snapdragon",
     val isVivoOrIqoo: Boolean = true,
     val isRealVivoOrIqooHardware: Boolean = true,
     val isVivoIqooSimulationActive: Boolean = false,
-    val vivoOsInfo: String = "Performance Engine Active",
-    val cpuPerformanceHintSupported: Boolean = true,
-    val cpuPowerEfficiencySupported: Boolean = false,
-    val gpuPerformanceHintExposed: Boolean = false,
-    val gameModeSupported: Boolean = true,
-    val currentGameModeLabel: String = "GAME_MODE_PERFORMANCE",
-    val sustainedPerformanceSupported: Boolean = true,
-    val thermalMonitoringSupported: Boolean = true,
-    val thermalHeadroomSupported: Boolean = true,
-    val oemPerformanceControlStatus: String = "PERFORMANCE_PIPELINE_ACTIVE",
-    val hardwareTier: DeviceHardwareTier = DeviceHardwareTier.ULTRA_FLAGSHIP
+    val deviceModel: String = "Device"
 )
 
 data class HardwareIndicatorItem(
-    val key: String,
-    val title: String,
-    val statusText: String,
-    val isEngaged: Boolean,
-    val explanation: String
+    val label: String,
+    val value: String,
+    val subtext: String,
+    val isWarning: Boolean = false
 )
 
 data class InstalledAppItem(
     val packageName: String,
-    val appName: String
+    val appName: String,
+    val isPreloaded: Boolean = false
 )
 
 data class PerformanceTelemetryState(
@@ -263,25 +204,32 @@ data class PerformanceTelemetryState(
     val foregroundServiceRunning: Boolean = false,
     val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
+    val activeGamePackage: String? = null,
+    val activeGameName: String? = null,
+    val deviceSpecs: DeviceLiveSpecs = DeviceLiveSpecs(),
+    val compatibilityReport: DeviceCompatibilityReport = DeviceCompatibilityReport(),
+    val thermalStatus: ThermalStatusInfo = ThermalStatusInfo(),
+    val batteryStatus: BatteryStatusInfo = BatteryStatusInfo(),
+    val cpuStatus: CpuStatusInfo = CpuStatusInfo(),
+    val gpuStatus: GpuStatusInfo = GpuStatusInfo(),
     val isDiabloModeActive: Boolean = false,
-    val wakeLockHeld: Boolean = false,
     val lockedPowerPercent: Int = 0,
     val gpuLockedDutyPercent: Int = 0,
     val realMeasuredThreadDutyPercent: Int = 0,
+    val powerStabilityHistory: List<Int> = List(24) { 0 },
+    val gpuStabilityHistory: List<Int> = List(24) { 0 },
+    val sessionStartEpochMs: Long = 0L,
+    val sessionElapsedSeconds: Long = 0L,
+    val recentTelemetryLogLines: List<String> = emptyList(),
+    val liveMeasuredFps: Int = 144,
+    val liveFrameTimeMs: Float = 6.9f,
     val memoryBandwidthMbPerSec: Int = 0,
     val crc32AluOpsPerSecMillions: Int = 0,
+    val gpuFlopOverdriveGflops: Int = 0,
     val audioFastPathActive: Boolean = false,
     val sensorSamplingHz: Int = 0,
     val storageThroughputMbPerSec: Int = 0,
-    val liveMeasuredFps: Int = 144,
-    val liveFrameTimeMs: Float = 6.9f,
-    val targetFrameRateFps: Int = 144,
-    val powerStabilityHistory: List<Int> = List(24) { 0 },
-    val gpuStabilityHistory: List<Int> = List(24) { 0 },
-    val activeGamePackage: String? = null,
-    val activeGameName: String? = null,
-    val sessionStartEpochMs: Long = 0L,
-    val sessionElapsedSeconds: Long = 0L,
+    val wakeLockHeld: Boolean = false,
     val sustainedModeRequestedOnWindow: Boolean = false,
     val noTouchPowerLockEnabled: Boolean = true,
     val antiThrottleBoosterEnabled: Boolean = true,
@@ -294,26 +242,5 @@ data class PerformanceTelemetryState(
     val extremeRenderOverdriveEnabled: Boolean = true,
     val vSyncDisabledEglSwapZero: Boolean = true,
     val glDitherDisabledAndFastestHints: Boolean = true,
-    val nativeCanvasBoundariesMaintained: Boolean = true,
-    val renderScaleSpoofEnabled: Boolean = false,
-    val renderScaleFactor: Float = 1.00f,
-    val internalShaderResolutionLabel: String = "1080 x 2400 (Zero Surface Downsampling)",
-    val globalDisplayDpiLabel: String = "1.0x NATIVE CANVAS",
-    val gpuFlopOverdriveGflops: Int = 0,
-    val vivoPemThermalDaemonSuppressed: Boolean = true,
-    val volumeShaderRayStepsPerFrame: Int = 64,
-    val originOsOutputStatus: String = "VSYNC_DISABLED: eglSwapInterval(0) | GL_FASTEST_THROUGHPUT | NATIVE_1.0X_CANVAS",
-    val secondaryDirectiveStatus: String = "UNLIMITED_FPS_BENCHMARK_ACTIVE | GL_DITHER: OFF | THERMAL_BYPASS: ENGAGED",
-    val targetPipelineProcess: String = "com.android.opengl / OpenGL ES 3.0",
-    val sensorHardwareName: String = "High Rate IMU",
-    val liveDownloadBandwidthMbps: Float = 0f,
-    val liveUploadBandwidthMbps: Float = 0f,
-    val recentTelemetryLogLines: List<String> = emptyList(),
-    val batteryStatus: BatteryStatusInfo = BatteryStatusInfo(),
-    val thermalStatus: ThermalStatusInfo = ThermalStatusInfo(),
-    val deviceSpecs: DeviceLiveSpecs = DeviceLiveSpecs(),
-    val cpuStatus: CpuStatusInfo = CpuStatusInfo(),
-    val gpuStatus: GpuStatusInfo = GpuStatusInfo(),
-    val compatibility: DeviceCompatibilityReport = DeviceCompatibilityReport(),
-    val activeIndicators: List<HardwareIndicatorItem> = emptyList()
+    val nativeCanvasBoundariesMaintained: Boolean = true
 )

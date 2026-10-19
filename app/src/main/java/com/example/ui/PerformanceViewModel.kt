@@ -2,7 +2,9 @@ package com.example.ui
 
 import android.app.Application
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -26,206 +28,131 @@ import kotlinx.coroutines.launch
 
 class PerformanceViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val appContext = application.applicationContext
-    private val database = AppDatabase.getInstance(appContext)
-    val repository = PerformanceRepository(database.performanceDao())
-    val engine = AndroidPerformanceEngine.getInstance(appContext)
+    private val engine = AndroidPerformanceEngine.getInstance(application)
+    private val repository: PerformanceRepository
 
     val telemetryState: StateFlow<PerformanceTelemetryState> = engine.telemetryState
-
-    val userPreferences: StateFlow<UserPreferencesEntity> = repository.userPreferences.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = UserPreferencesEntity()
-    )
-
-    val associatedGames: StateFlow<List<AssociatedGameEntity>> = repository.associatedGames.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    val recentSessions: StateFlow<List<SessionHistoryEntity>> = repository.recentSessions.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    private val _uiBannerMessage = MutableStateFlow<String?>(null)
-    val uiBannerMessage: StateFlow<String?> = _uiBannerMessage.asStateFlow()
 
     private val _installedApps = MutableStateFlow<List<InstalledAppItem>>(emptyList())
     val installedApps: StateFlow<List<InstalledAppItem>> = _installedApps.asStateFlow()
 
-    init {
-        engine.activateAllMaxHardwareSubsystems()
-        loadInstalledApplications()
+    private val _uiBannerMessage = MutableStateFlow<String?>(null)
+    val uiBannerMessage: StateFlow<String?> = _uiBannerMessage.asStateFlow()
 
-        engine.onSessionCompletedCallback = { profile, focus, gameName, startEpoch, durationSec, peakTemp, throttled, reason ->
+    val associatedGames: StateFlow<List<AssociatedGameEntity>>
+    val recentSessions: StateFlow<List<SessionHistoryEntity>>
+    val userPreferences: StateFlow<UserPreferencesEntity>
+
+    init {
+        val db = AppDatabase.getInstance(application)
+        repository = PerformanceRepository(db.performanceDao())
+
+        associatedGames = repository.associatedGames.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+        recentSessions = repository.recentSessions.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+        userPreferences = repository.userPreferences.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            UserPreferencesEntity()
+        )
+
+        engine.onSessionCompletedCallback = { profile, focus, gameName, startMs, durSec, peakTemp, throttled, reason ->
             viewModelScope.launch(Dispatchers.IO) {
-                repository.recordCompletedSession(
-                    profile = profile,
-                    workloadFocus = focus,
+                repository.recordSession(
+                    profileId = profile.id,
+                    focusId = focus.id,
                     gameName = gameName,
-                    startTimestampMs = startEpoch,
-                    durationSeconds = durationSec,
+                    startEpochMs = startMs,
+                    durationSeconds = durSec,
                     peakTempCelsius = peakTemp,
-                    experiencedThermalThrottling = throttled,
-                    stopReason = reason
+                    throttled = throttled,
+                    reason = reason
                 )
             }
         }
-    }
 
-    private fun loadInstalledApplications() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val pm = appContext.packageManager
-                val intent = Intent(Intent.ACTION_MAIN, null).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                }
-                val resolveInfos = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
-                val list = resolveInfos.mapNotNull { ri ->
-                    val pkg = ri.activityInfo?.packageName ?: return@mapNotNull null
-                    if (pkg == appContext.packageName) return@mapNotNull null
-                    val name = ri.loadLabel(pm)?.toString() ?: pkg
-                    InstalledAppItem(packageName = pkg, appName = name)
-                }.distinctBy { it.packageName }
-                    .sortedBy { it.appName.lowercase() }
-                _installedApps.value = list
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
-    fun startPerformanceMode(associatedGame: AssociatedGameEntity? = null) {
-        val current = telemetryState.value
-        val profile = associatedGame?.let { PerformanceProfile.fromId(it.profileId) } ?: current.selectedProfile
-        val focus = associatedGame?.let { WorkloadFocus.fromId(it.workloadFocusId) } ?: current.selectedWorkloadFocus
-        val pkg = associatedGame?.packageName ?: current.activeGamePackage
-        val name = associatedGame?.appName ?: current.activeGameName
-
-        engine.activateAllMaxHardwareSubsystems()
-        val success = engine.startPerformanceSession(
-            profile = profile,
-            workloadFocus = focus,
-            associatedGamePackage = pkg,
-            associatedGameName = name
-        )
-
-        if (success) {
-            PerformanceForegroundService.startServiceSession(
-                context = appContext,
-                profile = profile,
-                workloadFocus = focus,
-                gamePackage = pkg,
-                gameName = name
-            )
-            _uiBannerMessage.value = "${profile.title} ENGAGED • 100% Locked Duty Cycle Active"
-        } else {
-            _uiBannerMessage.value = "Unable to start session on this device."
-        }
-    }
-
-    fun stopPerformanceMode() {
-        PerformanceForegroundService.stopServiceSession(appContext)
-        engine.stopPerformanceSession("User stopped session")
-        _uiBannerMessage.value = "Session stopped • CPU & GPU returned to normal power"
+        loadInstalledApplications()
     }
 
     fun selectProfile(profile: PerformanceProfile) {
         engine.setProfile(profile)
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateSelectedProfile(profile)
-        }
-        if (telemetryState.value.isSessionActive) {
-            startPerformanceMode()
-        }
     }
 
     fun selectWorkloadFocus(focus: WorkloadFocus) {
         engine.setWorkloadFocus(focus)
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateSelectedWorkloadFocus(focus)
+    }
+
+    fun startPerformanceMode(associatedGamePackage: String? = null, associatedGameName: String? = null) {
+        val success = engine.startPerformanceSession(
+            associatedGamePackage = associatedGamePackage,
+            associatedGameName = associatedGameName
+        )
+        if (success) {
+            try {
+                PerformanceForegroundService.startService(getApplication())
+            } catch (_: Throwable) {
+            }
+            _uiBannerMessage.value = "${engine.telemetryState.value.selectedProfile.title} Active • 100% Lock Engaged"
+        } else {
+            _uiBannerMessage.value = "Unable to start: Device check restriction."
         }
-        if (telemetryState.value.isSessionActive) {
-            startPerformanceMode()
+    }
+
+    fun stopPerformanceMode() {
+        engine.stopPerformanceSession("User Stopped")
+        try {
+            PerformanceForegroundService.stopService(getApplication())
+        } catch (_: Throwable) {
         }
+        _uiBannerMessage.value = "Performance session stopped. Returned to normal idle."
+    }
+
+    fun dismissBanner() {
+        _uiBannerMessage.value = null
     }
 
     fun addGameAssociation(
         packageName: String,
         appName: String,
         profile: PerformanceProfile,
-        workloadFocus: WorkloadFocus,
-        autoActivate: Boolean = true
+        focus: WorkloadFocus
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.upsertGameAssociation(
-                packageName = packageName,
-                appName = appName,
-                profile = profile,
-                workloadFocus = workloadFocus,
-                autoActivate = autoActivate
-            )
+            repository.associateGame(packageName, appName, profile.id, focus.id)
         }
     }
 
     fun removeGameAssociation(packageName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.removeGameAssociation(packageName)
+            repository.removeGame(packageName)
         }
     }
 
     fun launchGameWithProfile(game: AssociatedGameEntity) {
-        startPerformanceMode(game)
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.markGameLaunched(game.packageName)
-        }
+        val profile = PerformanceProfile.fromId(game.assignedProfileId)
+        val focus = WorkloadFocus.fromId(game.assignedFocusId)
+        engine.setProfile(profile)
+        engine.setWorkloadFocus(focus)
+        startPerformanceMode(game.packageName, game.appName)
+
         try {
-            val pm = appContext.packageManager
-            val intent = pm.getLaunchIntentForPackage(game.packageName)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                appContext.startActivity(intent)
+            val pm = getApplication<Application>().packageManager
+            val launchIntent = pm.getLaunchIntentForPackage(game.packageName)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                getApplication<Application>().startActivity(launchIntent)
+            } else {
+                _uiBannerMessage.value = "App ${game.appName} locked at 100% duty, but launch intent not found."
             }
         } catch (_: Throwable) {
-        }
-    }
-
-    fun updateBatteryWarning(enabled: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateBatteryWarningSetting(enabled)
-        }
-    }
-
-    fun updateBootRestore(enabled: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateBootRestoreSetting(enabled)
-        }
-    }
-
-    fun updateAutoStartMaxPower(enabled: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateAutoStartMaxPowerOnLaunch(enabled)
-        }
-    }
-
-    fun updatePlayIntroAnimation(enabled: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updatePlayIntroAnimationOnStart(enabled)
-        }
-    }
-
-    fun updateCustomLogoUri(uri: String?) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateCustomLogoUri(uri)
-        }
-    }
-
-    fun updateCustomIntroVideoUri(uri: String?) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateCustomIntroVideoUri(uri)
+            _uiBannerMessage.value = "Performance locked at 100%. Failed to open ${game.appName} directly."
         }
     }
 
@@ -235,7 +162,52 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun dismissBanner() {
-        _uiBannerMessage.value = null
+    fun updateBatteryWarning(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = userPreferences.value
+            repository.updatePreferences(current.copy(batteryProtectionWarningEnabled = enabled))
+        }
+    }
+
+    fun updateBootRestore(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = userPreferences.value
+            repository.updatePreferences(current.copy(autoRestoreOnBoot = enabled))
+        }
+    }
+
+    fun updateAutoStartMaxPower(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = userPreferences.value
+            repository.updatePreferences(current.copy(autoStartMaxPowerOnLaunch = enabled))
+        }
+    }
+
+    private fun loadInstalledApplications() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val pm = getApplication<Application>().packageManager
+                val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getInstalledApplications(0)
+                }
+
+                val apps = packages
+                    .filter { (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || it.packageName.contains("benchmark") || it.packageName.contains("antutu") || it.packageName.contains("geekbench") || it.packageName.contains("game") }
+                    .map {
+                        InstalledAppItem(
+                            packageName = it.packageName,
+                            appName = pm.getApplicationLabel(it).toString()
+                        )
+                    }
+                    .sortedBy { it.appName }
+
+                _installedApps.value = apps
+            } catch (_: Throwable) {
+                _installedApps.value = emptyList()
+            }
+        }
     }
 }

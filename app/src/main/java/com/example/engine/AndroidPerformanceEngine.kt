@@ -1,7 +1,6 @@
 package com.example.engine
 
 import android.app.ActivityManager
-import android.app.GameManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -16,26 +15,19 @@ import android.os.SystemClock
 import com.example.model.BatteryStatusInfo
 import com.example.model.CpuStatusInfo
 import com.example.model.DeviceCompatibilityReport
-import com.example.model.DeviceHardwareTier
 import com.example.model.DeviceLiveSpecs
 import com.example.model.GpuStatusInfo
-import com.example.model.HardwareIndicatorItem
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
 import com.example.model.ThermalStatusInfo
 import com.example.model.ThermalStatusLevel
 import com.example.model.WorkloadFocus
-import java.io.File
-import java.io.RandomAccessFile
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.CRC32
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,7 +46,6 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var activeHintSession: PerformanceHintManager.Session? = null
-    private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
     private var governorLoopJob: Job? = null
     private var telemetryLoopJob: Job? = null
@@ -67,10 +58,6 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     var isRobolectricTest: Boolean = false
     var enforceVivoIqooOnlyLock: Boolean = false
     private var vivoIqooSimulationOverride: Boolean = false
-
-    private var lastRxBytes = TrafficStats.getTotalRxBytes()
-    private var lastTxBytes = TrafficStats.getTotalTxBytes()
-    private var lastNetworkCheckEpochMs = SystemClock.elapsedRealtime()
 
     var onSessionCompletedCallback: ((
         profile: PerformanceProfile,
@@ -112,25 +99,6 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
     fun isExtremeOverdriveProfile(profile: PerformanceProfile): Boolean {
         return profile == PerformanceProfile.DIABLO_MODE
-    }
-
-    fun activateAllMaxHardwareSubsystems() {
-        _telemetryState.update {
-            it.copy(
-                noTouchPowerLockEnabled = true,
-                antiThrottleBoosterEnabled = true,
-                memoryBandwidthPrefetchEnabled = true,
-                lowLatencyAudioDspLockEnabled = true,
-                touchSensorBoostEnabled = true,
-                storageIoBoostEnabled = true,
-                minimalPostProcessingDisplayEnabled = true,
-                originOs6OverdriveEnabled = true,
-                extremeRenderOverdriveEnabled = true,
-                vSyncDisabledEglSwapZero = true,
-                glDitherDisabledAndFastestHints = true,
-                nativeCanvasBoundariesMaintained = true
-            )
-        }
     }
 
     fun setProfile(profile: PerformanceProfile) {
@@ -350,15 +318,15 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     }
 
     private fun applyPerformanceHintSession(profile: PerformanceProfile) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activeHintSession == null) {
-            try {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val phm = appContext.getSystemService(PerformanceHintManager::class.java)
                 if (phm != null) {
-                    val tids = intArrayOf(Process.myPid(), Process.myTid())
+                    val tids = intArrayOf(Process.myTid())
                     activeHintSession = phm.createHintSession(tids, profile.targetWorkDurationNs)
                 }
-            } catch (_: Throwable) {
             }
+        } catch (_: Throwable) {
         }
     }
 
@@ -374,79 +342,68 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     }
 
     private fun startMonitoringLoops() {
-        if (telemetryLoopJob?.isActive == true) return
+        governorLoopJob?.cancel()
+        governorLoopJob = engineScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(1000)
+                if (_telemetryState.value.isSessionActive) {
+                    _telemetryState.update { st ->
+                        st.copy(sessionElapsedSeconds = st.sessionElapsedSeconds + 1)
+                    }
+                }
+            }
+        }
+
+        telemetryLoopJob?.cancel()
         telemetryLoopJob = engineScope.launch(Dispatchers.Default) {
             while (isActive) {
-                delay(1000L)
-                val st = _telemetryState.value
-                if (st.isSessionActive) {
-                    val newElapsed = if (st.sessionStartEpochMs > 0L) {
-                        (System.currentTimeMillis() - st.sessionStartEpochMs) / 1000L
-                    } else 0L
-                    _telemetryState.update { it.copy(sessionElapsedSeconds = newElapsed) }
-                }
+                delay(1000)
                 refreshStaticAndDynamicTelemetry()
             }
         }
     }
 
     fun refreshStaticAndDynamicTelemetry() {
-        val current = _telemetryState.value
         val compatibility = detectDeviceCompatibility()
+        val specs = readDeviceLiveSpecs()
         val battery = readBatteryStatus()
         val thermal = readThermalStatus()
-        val specs = readDeviceLiveSpecs()
+        val isActive = _telemetryState.value.isSessionActive
+        val profile = _telemetryState.value.selectedProfile
+        val focus = _telemetryState.value.selectedWorkloadFocus
 
-        val realDutyPct = if (current.isSessionActive) {
-            when (current.selectedProfile) {
+        val realDutyPct = if (isActive) {
+            when (profile) {
                 PerformanceProfile.DIABLO_MODE -> 100
                 PerformanceProfile.BALANCE_MODE -> 70
                 PerformanceProfile.SAVING_MODE -> 25
             }
-        } else 0
+        } else {
+            0
+        }
 
-        val gpuDutyPct = if (current.isSessionActive && current.selectedWorkloadFocus.enableGpuGameHints) {
-            when (current.selectedProfile) {
-                PerformanceProfile.DIABLO_MODE -> 100
-                PerformanceProfile.BALANCE_MODE -> 70
-                PerformanceProfile.SAVING_MODE -> 25
-            }
-        } else 0
+        val gpuDutyPct = if (isActive && focus.enableGpuGameHints) realDutyPct else 0
 
-        val cpu = buildCpuStatus(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            focus = current.selectedWorkloadFocus,
-            compatibility = compatibility,
-            thermal = thermal,
-            lockedPowerPct = realDutyPct
-        )
+        val cpu = buildCpuStatus(isActive, profile, focus, compatibility, thermal, realDutyPct)
+        val gpu = buildGpuStatus(isActive, profile, focus, compatibility, thermal, gpuDutyPct)
 
-        val gpu = buildGpuStatus(
-            isActive = current.isSessionActive,
-            profile = current.selectedProfile,
-            focus = current.selectedWorkloadFocus,
-            compatibility = compatibility,
-            thermal = thermal,
-            gpuDutyPct = gpuDutyPct
-        )
-
-        _telemetryState.update { state ->
-            val updatedHistory = if (state.isSessionActive) {
-                (state.powerStabilityHistory + realDutyPct).takeLast(24)
+        _telemetryState.update { st ->
+            val updatedHistory = if (isActive) {
+                (st.powerStabilityHistory.drop(1) + realDutyPct).takeLast(24)
             } else {
                 List(24) { 0 }
             }
-            val updatedGpuHistory = if (state.isSessionActive) {
-                (state.gpuStabilityHistory + gpuDutyPct).takeLast(24)
+            val updatedGpuHistory = if (isActive) {
+                (st.gpuStabilityHistory.drop(1) + gpuDutyPct).takeLast(24)
             } else {
                 List(24) { 0 }
             }
-            state.copy(
-                compatibility = compatibility,
+
+            st.copy(
+                deviceSpecs = specs,
+                compatibilityReport = compatibility,
                 batteryStatus = battery,
                 thermalStatus = thermal,
-                deviceSpecs = specs,
                 cpuStatus = cpu,
                 gpuStatus = gpu,
                 lockedPowerPercent = realDutyPct,
@@ -469,7 +426,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     ): CpuStatusInfo {
         if (!compatibility.isVivoOrIqoo) {
             return CpuStatusInfo(
-                requestState = "LOCKED (VIVO/iQOO ONLY)",
+                requestState = "LOCKED",
                 hintSessionActive = false,
                 powerStabilityPercent = 0,
                 statusDetail = "Device authorization required"

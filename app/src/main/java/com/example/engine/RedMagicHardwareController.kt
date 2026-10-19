@@ -1,10 +1,6 @@
 package com.example.engine
 
 import android.content.Context
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -17,122 +13,142 @@ import android.opengl.GLES20
 import android.os.SystemClock
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class RedMagicHardwareController(private val context: Context) {
 
-    val measuredGpuGflops = AtomicInteger(0)
-    val measuredSensorSamplingHz = AtomicInteger(0)
-    val measuredStorageThroughputMbPerSec = AtomicInteger(0)
+    private val isGpuRunning = AtomicBoolean(false)
+    private val isAudioDspRunning = AtomicBoolean(false)
+    private val isSensorRunning = AtomicBoolean(false)
+    private val isStorageRunning = AtomicBoolean(false)
 
-    val vSyncDisabledEglSwapZero = AtomicBoolean(true)
-    val glDitherDisabledAndFastestHints = AtomicBoolean(true)
-    val nativeCanvasBoundariesMaintained = AtomicBoolean(true)
-    val extremeRenderOverdriveActive = AtomicBoolean(false)
-
-    var detectedGlRenderer: String = "Adreno / Mali GPU"
-        private set
-    var detectedSensorHardwareName: String = "Hardware IMU"
-        private set
-
-    private var gpuFloorJob: Job? = null
-    private var audioDspJob: Job? = null
+    private var gpuJob: Job? = null
+    private var audioJob: Job? = null
     private var sensorJob: Job? = null
     private var storageJob: Job? = null
 
     private var audioTrack: AudioTrack? = null
-    private var sensorEventListener: SensorEventListener? = null
 
     fun startOpenGlGpuFloorLock(scope: CoroutineScope, isExtreme: Boolean) {
-        if (gpuFloorJob?.isActive == true) return
-        extremeRenderOverdriveActive.set(isExtreme)
-        vSyncDisabledEglSwapZero.set(true)
-        glDitherDisabledAndFastestHints.set(true)
-        nativeCanvasBoundariesMaintained.set(true)
+        if (isGpuRunning.getAndSet(true)) return
 
-        gpuFloorJob = scope.launch(Dispatchers.Default) {
-            var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
-            var contextEgl: EGLContext = EGL14.EGL_NO_CONTEXT
-            var surface: EGLSurface = EGL14.EGL_NO_SURFACE
+        gpuJob = scope.launch(Dispatchers.Default) {
+            var eglDisplay: EGLDisplay? = null
+            var eglContext: EGLContext? = null
+            var eglSurface: EGLSurface? = null
 
             try {
-                display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-                if (display != EGL14.EGL_NO_DISPLAY) {
-                    val version = IntArray(2)
-                    if (EGL14.eglInitialize(display, version, 0, version, 1)) {
-                        val configAttribs = intArrayOf(
-                            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
-                            EGL14.EGL_RED_SIZE, 8,
-                            EGL14.EGL_GREEN_SIZE, 8,
-                            EGL14.EGL_BLUE_SIZE, 8,
-                            EGL14.EGL_NONE
-                        )
-                        val configs = arrayOfNulls<EGLConfig>(1)
-                        val numConfigs = IntArray(1)
-                        EGL14.eglChooseConfig(display, configAttribs, 0, configs, 0, 1, numConfigs, 0)
-                        val config = configs[0]
+                eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                val version = IntArray(2)
+                EGL14.eglInitialize(eglDisplay, version, 0, version, 1)
 
-                        if (config != null) {
-                            val contextAttribs = intArrayOf(
-                                EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
-                                EGL14.EGL_NONE
-                            )
-                            contextEgl = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
+                val configAttribs = intArrayOf(
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                    EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                    EGL14.EGL_RED_SIZE, 8,
+                    EGL14.EGL_GREEN_SIZE, 8,
+                    EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_ALPHA_SIZE, 8,
+                    EGL14.EGL_NONE
+                )
+                val configs = arrayOfNulls<EGLConfig>(1)
+                val numConfigs = IntArray(1)
+                EGL14.eglChooseConfig(eglDisplay, configAttribs, 0, configs, 0, 1, numConfigs, 0)
+                val config = configs[0] ?: return@launch
 
-                            val pbufferAttribs = intArrayOf(
-                                EGL14.EGL_WIDTH, 64,
-                                EGL14.EGL_HEIGHT, 64,
-                                EGL14.EGL_NONE
-                            )
-                            surface = EGL14.eglCreatePbufferSurface(display, config, pbufferAttribs, 0)
-                            EGL14.eglMakeCurrent(display, surface, surface, contextEgl)
+                val contextAttribs = intArrayOf(
+                    EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
+                    EGL14.EGL_NONE
+                )
+                eglContext = EGL14.eglCreateContext(eglDisplay, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
-                            EGL14.eglSwapInterval(display, 0)
-                            GLES20.glDisable(GLES20.GL_DITHER)
-                            GLES20.glHint(GLES20.GL_GENERATE_MIPMAP_HINT, GLES20.GL_FASTEST)
+                val pbufferAttribs = intArrayOf(
+                    EGL14.EGL_WIDTH, 64,
+                    EGL14.EGL_HEIGHT, 64,
+                    EGL14.EGL_NONE
+                )
+                eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, config, pbufferAttribs, 0)
+                EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
 
-                            val renderer = GLES20.glGetString(GLES20.GL_RENDERER)
-                            if (!renderer.isNullOrBlank()) {
-                                detectedGlRenderer = renderer
-                            }
-                        }
+                EGL14.eglSwapInterval(eglDisplay, 0)
+                GLES20.glDisable(GLES20.GL_DITHER)
+
+                val vertexShaderCode = """
+                    attribute vec4 vPosition;
+                    void main() {
+                        gl_Position = vPosition;
+                    }
+                """.trimIndent()
+
+                val fragmentShaderCode = """
+                    precision mediump float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    void main() {
+                        vec2 st = gl_FragCoord.xy / uResolution.xy;
+                        vec3 color = vec3(0.0);
+                        float d = distance(st, vec2(0.5));
+                        color = vec3(sin(uTime + d * 10.0), cos(uTime - d * 10.0), sin(uTime * 0.5));
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                """.trimIndent()
+
+                val program = createProgram(vertexShaderCode, fragmentShaderCode)
+                val vPositionLoc = GLES20.glGetAttribLocation(program, "vPosition")
+                val uResolutionLoc = GLES20.glGetUniformLocation(program, "uResolution")
+                val uTimeLoc = GLES20.glGetUniformLocation(program, "uTime")
+
+                val triangleCoords = floatArrayOf(
+                    -1.0f, -1.0f, 0.0f,
+                     1.0f, -1.0f, 0.0f,
+                    -1.0f,  1.0f, 0.0f,
+                     1.0f,  1.0f, 0.0f
+                )
+                val vertexBuffer = ByteBuffer.allocateDirect(triangleCoords.size * 4)
+                    .order(ByteOrder.nativeOrder())
+                    .asFloatBuffer()
+                    .put(triangleCoords)
+                vertexBuffer.position(0)
+
+                var frameCount = 0
+                while (isActive && isGpuRunning.get()) {
+                    GLES20.glViewport(0, 0, 64, 64)
+                    GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+
+                    GLES20.glUseProgram(program)
+                    GLES20.glEnableVertexAttribArray(vPositionLoc)
+                    GLES20.glVertexAttribPointer(vPositionLoc, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+
+                    GLES20.glUniform2f(uResolutionLoc, 64f, 64f)
+                    GLES20.glUniform1f(uTimeLoc, frameCount * 0.05f)
+
+                    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                    GLES20.glFinish()
+
+                    frameCount++
+                    if (isExtreme) {
+                        // Tight render loop
+                    } else {
+                        SystemClock.sleep(1)
                     }
                 }
             } catch (_: Throwable) {
-            }
-
-            val targetGflops = if (isExtreme) 1850 else 1420
-            measuredGpuGflops.set(targetGflops)
-
-            try {
-                while (isActive) {
-                    try {
-                        if (display != EGL14.EGL_NO_DISPLAY && surface != EGL14.EGL_NO_SURFACE) {
-                            GLES20.glClearColor(0.01f, 0.02f, 0.04f, 1.0f)
-                            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                            GLES20.glFlush()
-                        }
-                    } catch (_: Throwable) {
-                    }
-                    delay(8L)
-                }
             } finally {
-                measuredGpuGflops.set(0)
                 try {
-                    if (display != EGL14.EGL_NO_DISPLAY) {
-                        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
-                        if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
-                        if (contextEgl != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, contextEgl)
-                        EGL14.eglTerminate(display)
+                    if (eglDisplay != null) {
+                        EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                        if (eglSurface != null) EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                        if (eglContext != null) EGL14.eglDestroyContext(eglDisplay, eglContext)
+                        EGL14.eglTerminate(eglDisplay)
                     }
                 } catch (_: Throwable) {
                 }
@@ -141,15 +157,15 @@ class RedMagicHardwareController(private val context: Context) {
     }
 
     fun stopOpenGlGpuFloorLock() {
-        gpuFloorJob?.cancel()
-        gpuFloorJob = null
-        measuredGpuGflops.set(0)
-        extremeRenderOverdriveActive.set(false)
+        isGpuRunning.set(false)
+        gpuJob?.cancel()
+        gpuJob = null
     }
 
     fun startLowLatencyAudioDspLock(scope: CoroutineScope) {
-        if (audioDspJob?.isActive == true) return
-        audioDspJob = scope.launch(Dispatchers.Default) {
+        if (isAudioDspRunning.getAndSet(true)) return
+
+        audioJob = scope.launch(Dispatchers.Default) {
             try {
                 val sampleRate = 48000
                 val bufferSize = AudioTrack.getMinBufferSize(
@@ -158,7 +174,7 @@ class RedMagicHardwareController(private val context: Context) {
                     AudioFormat.ENCODING_PCM_16BIT
                 ).coerceAtLeast(1024)
 
-                val track = AudioTrack.Builder()
+                audioTrack = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_GAME)
@@ -168,133 +184,94 @@ class RedMagicHardwareController(private val context: Context) {
                     )
                     .setAudioFormat(
                         AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(sampleRate)
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .build()
                     )
                     .setBufferSizeInBytes(bufferSize)
                     .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
 
-                audioTrack = track
-                track.play()
-                val silentBuffer = ByteArray(bufferSize)
-
-                while (isActive) {
-                    track.write(silentBuffer, 0, silentBuffer.size)
-                    delay(20L)
+                audioTrack?.play()
+                val silentBuffer = ShortArray(bufferSize / 2)
+                while (isActive && isAudioDspRunning.get()) {
+                    audioTrack?.write(silentBuffer, 0, silentBuffer.size)
                 }
             } catch (_: Throwable) {
-            } finally {
-                try {
-                    audioTrack?.stop()
-                    audioTrack?.release()
-                } catch (_: Throwable) {
-                }
-                audioTrack = null
             }
         }
     }
 
     fun stopLowLatencyAudioDspLock() {
-        audioDspJob?.cancel()
-        audioDspJob = null
+        isAudioDspRunning.set(false)
+        audioJob?.cancel()
+        audioJob = null
         try {
             audioTrack?.stop()
             audioTrack?.release()
         } catch (_: Throwable) {
+        } finally {
+            audioTrack = null
         }
-        audioTrack = null
     }
 
     fun startHighRateSensorPipelineLock(scope: CoroutineScope) {
-        if (sensorJob?.isActive == true) return
+        if (isSensorRunning.getAndSet(true)) return
         sensorJob = scope.launch(Dispatchers.Default) {
-            val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-            val accel = sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            if (sm != null && accel != null) {
-                detectedSensorHardwareName = accel.name
-                val count = AtomicInteger(0)
-                val listener = object : SensorEventListener {
-                    override fun onSensorChanged(event: SensorEvent?) {
-                        count.incrementAndGet()
-                    }
-                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-                }
-                sensorEventListener = listener
-                try {
-                    sm.registerListener(listener, accel, SensorManager.SENSOR_DELAY_FASTEST)
-                    while (isActive) {
-                        val eventsInSec = count.getAndSet(0)
-                        measuredSensorSamplingHz.set(eventsInSec.coerceAtLeast(144))
-                        delay(1000L)
-                    }
-                } finally {
-                    try {
-                        sm.unregisterListener(listener)
-                    } catch (_: Throwable) {
-                    }
-                    measuredSensorSamplingHz.set(0)
-                }
-            } else {
-                measuredSensorSamplingHz.set(144)
+            while (isActive && isSensorRunning.get()) {
+                SystemClock.sleep(7) // ~144Hz
             }
         }
     }
 
     fun stopHighRateSensorPipelineLock() {
+        isSensorRunning.set(false)
         sensorJob?.cancel()
         sensorJob = null
-        val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-        sensorEventListener?.let {
-            try {
-                sm?.unregisterListener(it)
-            } catch (_: Throwable) {
-            }
-        }
-        sensorEventListener = null
-        measuredSensorSamplingHz.set(0)
     }
 
     fun startUfsStorageKeepAlive(scope: CoroutineScope) {
-        if (storageJob?.isActive == true) return
+        if (isStorageRunning.getAndSet(true)) return
         storageJob = scope.launch(Dispatchers.IO) {
-            val buffer = ByteArray(256 * 1024) { (it % 127).toByte() }
-            val tempFile = File(context.cacheDir, "storage_perf_keepalive.tmp")
             try {
-                while (isActive) {
-                    val start = SystemClock.elapsedRealtime()
-                    RandomAccessFile(tempFile, "rw").use { raf ->
-                        raf.seek(0)
-                        raf.write(buffer)
-                        raf.fd.sync()
-                        raf.seek(0)
-                        raf.readFully(buffer)
-                    }
-                    val elapsedMs = (SystemClock.elapsedRealtime() - start).coerceAtLeast(1)
-                    val mbSec = ((buffer.size * 2L * 1000L) / (elapsedMs * 1024L * 1024L)).toInt()
-                    measuredStorageThroughputMbPerSec.set(mbSec.coerceIn(1780, 3400))
-                    delay(300L)
+                val file = File(context.cacheDir, "ufs_keepalive.tmp")
+                val raf = RandomAccessFile(file, "rw")
+                val buf = ByteArray(4096) { 0x55.toByte() }
+                while (isActive && isStorageRunning.get()) {
+                    raf.seek(0)
+                    raf.write(buf)
+                    raf.fd.sync()
+                    SystemClock.sleep(100)
                 }
+                raf.close()
+                file.delete()
             } catch (_: Throwable) {
-                measuredStorageThroughputMbPerSec.set(1780)
-            } finally {
-                try {
-                    if (tempFile.exists()) tempFile.delete()
-                } catch (_: Throwable) {
-                }
-                measuredStorageThroughputMbPerSec.set(0)
             }
         }
     }
 
     fun stopUfsStorageKeepAlive() {
+        isStorageRunning.set(false)
         storageJob?.cancel()
         storageJob = null
-        measuredStorageThroughputMbPerSec.set(0)
     }
 
-    fun getInternalShaderResolutionLabel(): String = "1080 x 2400 (Zero Surface Downsampling)"
-    fun getGlobalDisplayDpiLabel(): String = "1.0x NATIVE CANVAS"
+    private fun createProgram(vertexSource: String, fragmentSource: String): Int {
+        val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource)
+        val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
+        val program = GLES20.glCreateProgram()
+        GLES20.glAttachShader(program, vertexShader)
+        GLES20.glAttachShader(program, fragmentShader)
+        GLES20.glLinkProgram(program)
+        return program
+    }
+
+    private fun loadShader(type: Int, shaderCode: String): Int {
+        val shader = GLES20.glCreateShader(type)
+        GLES20.glShaderSource(shader, shaderCode)
+        GLES20.glCompileShader(shader)
+        return shader
+    }
 }

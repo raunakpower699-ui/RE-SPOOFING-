@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
         SessionHistoryEntity::class,
         UserPreferencesEntity::class
     ],
-    version = 2,
+    version = 1,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,11 +27,8 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "re_spoofing_performance_db"
-                )
-                    .fallbackToDestructiveMigration(true)
-                    .build()
-                    .also { INSTANCE = it }
+                    "respoofing_performance.db"
+                ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
             }
         }
     }

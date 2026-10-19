@@ -7,36 +7,28 @@ import androidx.room.PrimaryKey
 data class AssociatedGameEntity(
     @PrimaryKey val packageName: String,
     val appName: String,
-    val profileId: String,
-    val workloadFocusId: String,
-    val autoActivateOnLaunch: Boolean = true,
-    val addedTimestamp: Long = System.currentTimeMillis(),
-    val lastLaunchedTimestamp: Long = 0L
+    val assignedProfileId: String,
+    val assignedFocusId: String,
+    val dateAddedEpochMs: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "session_history")
 data class SessionHistoryEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val profileId: String,
-    val workloadFocusId: String,
+    val focusId: String,
     val associatedGameName: String?,
-    val startTimestampMs: Long,
+    val startEpochMs: Long,
     val durationSeconds: Long,
     val peakBatteryTempCelsius: Float,
-    val experiencedThermalThrottling: Boolean,
-    val stopReason: String
+    val thermalThrottlingDetected: Boolean,
+    val terminationReason: String
 )
 
 @Entity(tableName = "user_preferences")
 data class UserPreferencesEntity(
     @PrimaryKey val id: Int = 1,
-    val selectedProfileId: String = "DIABLO_MODE",
-    val selectedWorkloadFocusId: String = "COMBINED_MAX",
-    val warnOnLowBattery: Boolean = true,
-    val rememberPreferenceOnBoot: Boolean = true,
-    val vivoIqooUnlockedOverride: Boolean = true,
-    val customLogoUri: String? = null,
-    val customIntroVideoUri: String? = null,
-    val playIntroAnimationOnStart: Boolean = true,
+    val batteryProtectionWarningEnabled: Boolean = true,
+    val autoRestoreOnBoot: Boolean = false,
     val autoStartMaxPowerOnLaunch: Boolean = false
 )

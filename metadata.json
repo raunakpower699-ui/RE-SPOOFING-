@@ -1,6 +1,8 @@
 {
-  "name": "RE Spoofing",
-  "description": "Exclusive performance optimization engine featuring Diablo Mode (100% CPU & GPU Lock), Balance Mode, and Saving Mode with zero throttling.",
+  "name": "Raunak Exploits",
+  "description": "Exclusive performance optimization engine by Raunak Exploits featuring Diablo Mode (100% Lock), Balance Mode, and Battery Saving Mode with Liquid Glass design.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

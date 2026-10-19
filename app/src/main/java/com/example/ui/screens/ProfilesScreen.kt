@@ -18,12 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -156,13 +152,9 @@ fun ProfilesScreen(
                 }
             }
 
-            items(recentSessions.take(5), key = { "session_${it.id}" }) { session ->
-                SessionHistoryItemCard(session = session)
+            items(recentSessions, key = { it.id }) { session ->
+                SessionHistoryCard(session = session)
             }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -178,22 +170,16 @@ private fun ProfileOptionCard(
         PerformanceProfile.BALANCE_MODE -> ElectricCyan
         PerformanceProfile.SAVING_MODE -> TelemetryGreen
     }
-    val icon = when (profile) {
-        PerformanceProfile.DIABLO_MODE -> Icons.Filled.LocalFireDepartment
-        PerformanceProfile.BALANCE_MODE -> Icons.Filled.Speed
-        PerformanceProfile.SAVING_MODE -> Icons.Filled.Eco
-    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onSelect() }
             .border(
                 1.5.dp,
                 if (isSelected) accentColor else CarbonBorder,
                 RoundedCornerShape(16.dp)
-            )
-            .clickable { onSelect() }
-            .testTag("profile_option_${profile.id.lowercase()}"),
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) CobaltDeep else CarbonSurface
@@ -201,40 +187,32 @@ private fun ProfileOptionCard(
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = profile.title,
-                tint = accentColor,
-                modifier = Modifier.size(28.dp)
+            RadioButton(
+                selected = isSelected,
+                onClick = onSelect,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = accentColor,
+                    unselectedColor = TextSecondary
+                )
             )
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = profile.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    RadioButton(
-                        selected = isSelected,
-                        onClick = onSelect,
-                        colors = RadioButtonDefaults.colors(selectedColor = accentColor)
-                    )
-                }
+                Text(
+                    text = profile.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.85f),
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = profile.subtitle,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = accentColor,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = profile.description,
                     style = MaterialTheme.typography.bodySmall,
@@ -254,13 +232,12 @@ private fun WorkloadFocusCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                1.dp,
-                if (isSelected) ElectricCyan else CarbonBorder,
-                RoundedCornerShape(14.dp)
-            )
             .clickable { onSelect() }
-            .testTag("focus_option_${focus.id.lowercase()}"),
+            .border(
+                1.5.dp,
+                if (isSelected) CobaltTurbo else CarbonBorder,
+                RoundedCornerShape(14.dp)
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) CobaltDeep else CarbonSurface
@@ -270,59 +247,79 @@ private fun WorkloadFocusCard(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Filled.Bolt,
-                contentDescription = focus.title,
-                tint = if (isSelected) ElectricCyan else TextSecondary,
-                modifier = Modifier.size(24.dp)
+            RadioButton(
+                selected = isSelected,
+                onClick = onSelect,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = CobaltTurbo,
+                    unselectedColor = TextSecondary
+                )
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
                 Text(
                     text = focus.title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = focus.summary,
                     style = MaterialTheme.typography.bodySmall,
+                    color = CobaltTurbo
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = focus.detail,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
             }
-            RadioButton(
-                selected = isSelected,
-                onClick = onSelect,
-                colors = RadioButtonDefaults.colors(selectedColor = ElectricCyan)
-            )
         }
     }
 }
 
 @Composable
-private fun SessionHistoryItemCard(session: SessionHistoryEntity) {
+private fun SessionHistoryCard(session: SessionHistoryEntity) {
     Surface(
         color = CarbonSurface,
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, CarbonBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = session.associatedGameName ?: session.profileId,
+                    text = session.associatedGameName ?: "Hardware Lock Session",
                     style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Duration: ${session.durationSeconds}s • Peak: ${session.peakBatteryTempCelsius}°C • ${session.stopReason}",
+                    text = "${session.durationSeconds}s",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ElectricCyan,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Profile: ${session.profileId}",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
+                )
+                Text(
+                    text = "Peak: ${session.peakBatteryTempCelsius}°C",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (session.peakBatteryTempCelsius > 44f) DiabloRed else TelemetryGreen
                 )
             }
         }

@@ -9,17 +9,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:ignore="HighSamplingRate" />
 
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RESpoofing"
-        tools:targetApi="35">
+        android:theme="@style/Theme.RESpoofing">
 
         <activity
             android:name=".MainActivity"
@@ -34,15 +34,11 @@
 
         <service
             android:name=".service.PerformanceForegroundService"
-            android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false">
+            android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="System-level performance governor floor lock and high-priority gaming telemetry service." />
+                android:value="Continuous extreme compute synchronization and zero-throttle governor locking." />
         </service>
-
     </application>
-
 </manifest>

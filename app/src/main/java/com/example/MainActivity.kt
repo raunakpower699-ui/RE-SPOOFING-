@@ -10,19 +10,30 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -35,12 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -54,26 +60,38 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.ui.PerformanceViewModel
-import com.example.ui.screens.CompatibilityScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.GameHubScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SettingsScreen
-import com.example.ui.theme.CarbonBorder
-import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.DiabloRed
+import com.example.ui.theme.DiabloRedGlow
 import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.ElectricCyanGlow
+import com.example.ui.theme.GlassBorder
+import com.example.ui.theme.GlassBorderActive
+import com.example.ui.theme.GlassSurface
+import com.example.ui.theme.GlassSurfaceElevated
+import com.example.ui.theme.LiquidGlassGradient
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.RESpoofingTheme
-import com.example.ui.theme.TelemetryGreen
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
@@ -90,7 +108,7 @@ class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* granted handled gracefully */ }
+    ) { /* handled */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -127,22 +145,38 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .border(1.5.dp, ElectricCyan, CircleShape)
+                                .shadow(6.dp, CircleShape, ambientColor = ElectricCyan, spotColor = ElectricCyan)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.raunak_logo),
+                                contentDescription = "Raunak Exploits",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "RE SPOOFING",
+                            text = "RAUNAK EXPLOITS",
                             style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary,
+                            letterSpacing = 0.5.sp
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (telemetryState.isSessionActive) DiabloRed else CarbonBorder
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (telemetryState.isSessionActive) DiabloRed else GlassBorder
                         ) {
                             Text(
                                 text = if (telemetryState.isSessionActive) "100% LOCKED" else "STANDBY",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextPrimary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -154,36 +188,11 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = CarbonSurface,
-                modifier = Modifier.border(1.dp, CarbonBorder)
-            ) {
-                AppNavTab.entries.forEach { tab ->
-                    val isSelected = selectedTab == tab
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { selectedTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = tab.icon,
-                                contentDescription = tab.title,
-                                tint = if (isSelected) ElectricCyan else TextSecondary
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                color = if (isSelected) ElectricCyan else TextSecondary,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = CobaltDeep
-                        ),
-                        modifier = Modifier.testTag(tab.tag)
-                    )
-                }
-            }
+            LiquidGlassBottomNavigationDock(
+                selectedTab = selectedTab,
+                isSessionActive = telemetryState.isSessionActive,
+                onTabSelected = { selectedTab = it }
+            )
         },
         containerColor = ObsidianBg
     ) { innerPadding ->
@@ -231,7 +240,6 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
                 }
             }
 
-            // Top Banner Message Overlay
             AnimatedVisibility(
                 visible = bannerMessage != null,
                 enter = slideInVertically(initialOffsetY = { -it }),
@@ -243,8 +251,8 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
             ) {
                 bannerMessage?.let { msg ->
                     Surface(
-                        color = CarbonSurface,
-                        shape = RoundedCornerShape(12.dp),
+                        color = GlassSurface,
+                        shape = RoundedCornerShape(14.dp),
                         border = androidx.compose.foundation.BorderStroke(1.2.dp, ElectricCyan),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -277,6 +285,106 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
                                     tint = TextSecondary
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiquidGlassBottomNavigationDock(
+    selectedTab: AppNavTab,
+    isSessionActive: Boolean,
+    onTabSelected: (AppNavTab) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val accentColor = if (isSessionActive) DiabloRed else ElectricCyan
+    val glowColor = if (isSessionActive) DiabloRedGlow else ElectricCyanGlow
+
+    Surface(
+        color = GlassSurface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.2.dp,
+            Brush.verticalGradient(
+                listOf(
+                    accentColor.copy(alpha = 0.5f),
+                    GlassBorder,
+                    Color.Transparent
+                )
+            )
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), ambientColor = glowColor, spotColor = glowColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .background(LiquidGlassGradient)
+                .navigationBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppNavTab.entries.forEach { tab ->
+                val isSelected = selectedTab == tab
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+
+                val scale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.92f else if (isSelected) 1.05f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                    label = "tabScale"
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isSelected) CobaltDeep else Color.Transparent,
+                    border = if (isSelected) {
+                        androidx.compose.foundation.BorderStroke(
+                            1.5.dp,
+                            Brush.linearGradient(
+                                listOf(accentColor, accentColor.copy(alpha = 0.3f))
+                            )
+                        )
+                    } else null,
+                    modifier = Modifier
+                        .scale(scale)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onTabSelected(tab)
+                            }
+                        )
+                        .testTag(tab.tag)
+                        .then(
+                            if (isSelected) Modifier.shadow(8.dp, RoundedCornerShape(16.dp), ambientColor = glowColor, spotColor = glowColor) else Modifier
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = tab.title,
+                            tint = if (isSelected) accentColor else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = tab.title,
+                                color = TextPrimary,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.5.sp
+                            )
                         }
                     }
                 }

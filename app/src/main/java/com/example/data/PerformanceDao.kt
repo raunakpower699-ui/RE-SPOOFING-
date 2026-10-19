@@ -9,32 +9,26 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PerformanceDao {
 
-    @Query("SELECT * FROM associated_games ORDER BY addedTimestamp DESC")
+    @Query("SELECT * FROM associated_games ORDER BY dateAddedEpochMs DESC")
     fun getAllAssociatedGames(): Flow<List<AssociatedGameEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAssociatedGame(game: AssociatedGameEntity)
+    suspend fun insertOrUpdateGame(game: AssociatedGameEntity)
 
     @Query("DELETE FROM associated_games WHERE packageName = :packageName")
-    suspend fun deleteAssociatedGame(packageName: String)
+    suspend fun deleteGame(packageName: String)
 
-    @Query("UPDATE associated_games SET lastLaunchedTimestamp = :timestamp WHERE packageName = :packageName")
-    suspend fun updateGameLaunchTimestamp(packageName: String, timestamp: Long)
+    @Query("SELECT * FROM session_history ORDER BY startEpochMs DESC LIMIT 50")
+    fun getRecentSessions(): Flow<List<SessionHistoryEntity>>
 
-    @Query("SELECT * FROM session_history ORDER BY startTimestampMs DESC LIMIT 20")
-    fun getRecentSessionHistory(): Flow<List<SessionHistoryEntity>>
-
-    @Insert
-    suspend fun insertSessionHistory(session: SessionHistoryEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSession(session: SessionHistoryEntity)
 
     @Query("DELETE FROM session_history")
     suspend fun clearSessionHistory()
 
-    @Query("SELECT * FROM user_preferences WHERE id = 1 LIMIT 1")
-    fun getUserPreferencesFlow(): Flow<UserPreferencesEntity?>
-
-    @Query("SELECT * FROM user_preferences WHERE id = 1 LIMIT 1")
-    suspend fun getUserPreferencesSnapshot(): UserPreferencesEntity?
+    @Query("SELECT * FROM user_preferences WHERE id = 1")
+    fun getUserPreferences(): Flow<UserPreferencesEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveUserPreferences(prefs: UserPreferencesEntity)

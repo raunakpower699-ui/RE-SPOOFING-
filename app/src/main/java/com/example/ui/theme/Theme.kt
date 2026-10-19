@@ -1,28 +1,30 @@
 package com.example.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val DarkColorScheme = darkColorScheme(
     primary = DiabloRed,
+    onPrimary = TextPrimary,
+    primaryContainer = DiabloRedDim,
+    onPrimaryContainer = TextPrimary,
     secondary = ElectricCyan,
+    onSecondary = ObsidianBg,
+    secondaryContainer = CobaltDeep,
+    onSecondaryContainer = ElectricCyan,
     tertiary = TelemetryGreen,
     background = ObsidianBg,
-    surface = CarbonSurface,
-    onPrimary = TextPrimary,
-    onSecondary = ObsidianBg,
-    onTertiary = ObsidianBg,
     onBackground = TextPrimary,
-    onSurface = TextPrimary
+    surface = CarbonSurface,
+    onSurface = TextPrimary,
+    surfaceVariant = CarbonSurfaceElevated,
+    onSurfaceVariant = TextSecondary,
+    outline = CarbonBorder
 )
 
 @Composable
-fun RESpoofingTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
+fun RESpoofingTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
         typography = Typography,

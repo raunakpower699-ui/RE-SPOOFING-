@@ -55,7 +55,6 @@ import com.example.ui.theme.CarbonBorder
 import com.example.ui.theme.CarbonSurface
 import com.example.ui.theme.CarbonSurfaceElevated
 import com.example.ui.theme.CobaltDeep
-import com.example.ui.theme.CobaltTurbo
 import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ObsidianBg
@@ -248,16 +247,18 @@ fun GameHubScreen(
         if (showInstalledPicker) {
             item {
                 Text(
-                    text = "INSTALLED DEVICE APPS",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = ElectricCyan
+                    text = "AVAILABLE INSTALLED APPS",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            items(installedApps.take(25), key = { "installed_${it.packageName}" }) { app ->
-                val already = associatedPackageSet.contains(app.packageName)
+
+            items(installedApps.take(15), key = { it.packageName }) { app ->
+                val alreadyAdded = associatedPackageSet.contains(app.packageName)
                 Surface(
-                    color = CarbonSurface,
-                    shape = RoundedCornerShape(12.dp),
+                    color = CarbonSurfaceElevated,
+                    shape = RoundedCornerShape(10.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, CarbonBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -269,112 +270,133 @@ fun GameHubScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = app.appName,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TextPrimary
                             )
                             Text(
                                 text = app.packageName,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                         }
-                        Button(
-                            onClick = {
-                                onAssociateGame(
-                                    app.packageName,
-                                    app.appName,
-                                    selectedProfile,
-                                    selectedFocus
-                                )
-                            },
-                            enabled = !already,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (already) CarbonSurfaceElevated else ElectricCyan,
-                                contentColor = if (already) TextSecondary else ObsidianBg
+                        if (alreadyAdded) {
+                            Text(
+                                text = "Added",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TelemetryGreen
                             )
-                        ) {
-                            Text(if (already) "Added" else "Add")
+                        } else {
+                            Button(
+                                onClick = {
+                                    onAssociateGame(
+                                        app.packageName,
+                                        app.appName,
+                                        selectedProfile,
+                                        selectedFocus
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CobaltDeep)
+                            ) {
+                                Text("+ Link", color = ElectricCyan)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Associated Games List
+        // Associated Apps List
         item {
             Text(
-                text = "ASSOCIATED LAUNCH TARGETS (${associatedGames.size})",
+                text = "CONFIGURED APPS (${associatedGames.size})",
                 style = MaterialTheme.typography.labelLarge,
-                color = ElectricCyan
+                color = TextSecondary,
+                fontWeight = FontWeight.Bold
             )
         }
 
-        items(associatedGames, key = { it.packageName }) { game ->
-            AssociatedGameItemCard(
-                game = game,
-                onLaunch = { onLaunchGameWithProfile(game) },
-                onRemove = { onRemoveGame(game.packageName) }
-            )
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
-@Composable
-private fun AssociatedGameItemCard(
-    game: AssociatedGameEntity,
-    onLaunch: () -> Unit,
-    onRemove: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CarbonSurface)
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = game.appName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${game.packageName} • Mode: ${game.profileId}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ElectricCyan
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = onLaunch,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DiabloRed,
-                        contentColor = TextPrimary
-                    )
+        if (associatedGames.isEmpty()) {
+            item {
+                Surface(
+                    color = CarbonSurface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = "Launch")
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Launch", fontWeight = FontWeight.Bold)
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Gamepad,
+                            contentDescription = "No Games",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No apps associated yet. Add your favorite game or benchmark above.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-                IconButton(onClick = onRemove) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Remove",
-                        tint = TextSecondary
-                    )
+            }
+        } else {
+            items(associatedGames, key = { it.packageName }) { game ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = CarbonSurface)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = game.appName,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = game.packageName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Profile: ${game.assignedProfileId}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DiabloRed,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = { onLaunchGameWithProfile(game) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DiabloRed,
+                                contentColor = TextPrimary
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = "Launch")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Launch")
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        IconButton(onClick = { onRemoveGame(game.packageName) }) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Remove",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
                 }
             }
         }

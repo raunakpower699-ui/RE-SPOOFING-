@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FF1744"
-        android:pathData="M54,20L32,60h18l-6,28 32,-42H58z" />
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M54,26L38,58h14l-4,20 24,-30H56z" />
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="66dp"
+        android:height="66dp"
+        android:drawable="@drawable/raunak_logo"
+        android:gravity="center" />
+</layer-list>

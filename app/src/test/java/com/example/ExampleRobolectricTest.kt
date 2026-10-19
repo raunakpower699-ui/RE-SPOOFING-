@@ -35,7 +35,6 @@ class ExampleRobolectricTest {
         assertTrue(specs.phoneDisplayName.isNotBlank())
         assertTrue(specs.androidVersionLabel.contains("Android"))
 
-        // Start Diablo Mode
         val started = engine.startPerformanceSession(
             profile = PerformanceProfile.DIABLO_MODE,
             workloadFocus = WorkloadFocus.COMBINED_MAX
@@ -49,7 +48,6 @@ class ExampleRobolectricTest {
         assertEquals(100, activeState.realMeasuredThreadDutyPercent)
         assertEquals("ACTIVE (DIABLO OVERDRIVE)", activeState.cpuStatus.requestState)
 
-        // Stop session: CPU and GPU must return to 0% idle
         engine.stopPerformanceSession("Test complete")
         val stoppedState = engine.telemetryState.value
         assertFalse(stoppedState.isSessionActive)
@@ -60,7 +58,6 @@ class ExampleRobolectricTest {
 
     @Test
     fun verifyBalanceAndSavingModes() {
-        // Balance Mode -> 70%
         engine.startPerformanceSession(
             profile = PerformanceProfile.BALANCE_MODE,
             workloadFocus = WorkloadFocus.COMBINED_MAX
@@ -68,7 +65,6 @@ class ExampleRobolectricTest {
         assertEquals(70, engine.telemetryState.value.lockedPowerPercent)
         assertEquals(70, engine.telemetryState.value.gpuLockedDutyPercent)
 
-        // Saving Mode -> 25%
         engine.startPerformanceSession(
             profile = PerformanceProfile.SAVING_MODE,
             workloadFocus = WorkloadFocus.COMBINED_MAX
