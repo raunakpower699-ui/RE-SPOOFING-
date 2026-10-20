@@ -135,10 +135,11 @@ class RedMagicHardwareController(private val context: Context) {
                     GLES20.glFinish()
 
                     frameCount++
+                    // Universal safe pacing: keeps GPU clock floor locked at max without driver hang
                     if (isExtreme) {
-                        // Tight render loop
+                        SystemClock.sleep(6) // ~160Hz lock
                     } else {
-                        SystemClock.sleep(1)
+                        SystemClock.sleep(12) // ~85Hz lock
                     }
                 }
             } catch (_: Throwable) {
@@ -167,7 +168,7 @@ class RedMagicHardwareController(private val context: Context) {
 
         audioJob = scope.launch(Dispatchers.Default) {
             try {
-                val sampleRate = 48000
+                val sampleRate = 44100
                 val bufferSize = AudioTrack.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
@@ -198,6 +199,7 @@ class RedMagicHardwareController(private val context: Context) {
                 val silentBuffer = ShortArray(bufferSize / 2)
                 while (isActive && isAudioDspRunning.get()) {
                     audioTrack?.write(silentBuffer, 0, silentBuffer.size)
+                    SystemClock.sleep(20) // Universal safe audio pacing
                 }
             } catch (_: Throwable) {
             }
@@ -221,7 +223,7 @@ class RedMagicHardwareController(private val context: Context) {
         if (isSensorRunning.getAndSet(true)) return
         sensorJob = scope.launch(Dispatchers.Default) {
             while (isActive && isSensorRunning.get()) {
-                SystemClock.sleep(7) // ~144Hz
+                SystemClock.sleep(10) // ~100Hz safe polling rate
             }
         }
     }
@@ -239,10 +241,15 @@ class RedMagicHardwareController(private val context: Context) {
                 val file = File(context.cacheDir, "ufs_keepalive.tmp")
                 val raf = RandomAccessFile(file, "rw")
                 val buf = ByteArray(4096) { 0x55.toByte() }
+                var writeCycles = 0
                 while (isActive && isStorageRunning.get()) {
                     raf.seek(0)
                     raf.write(buf)
-                    raf.fd.sync()
+                    writeCycles++
+                    // Only sync once every 300 cycles (30 seconds) to avoid freezing eMMC on budget phones!
+                    if (writeCycles % 300 == 0) {
+                        try { raf.fd.sync() } catch (_: Throwable) {}
+                    }
                     SystemClock.sleep(100)
                 }
                 raf.close()

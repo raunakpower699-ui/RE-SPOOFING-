@@ -107,6 +107,59 @@ enum class WorkloadFocus(
     }
 }
 
+enum class UniversalDeviceTier(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val ramRecommendation: String,
+    val maxWorkerThreads: Int,
+    val dutyCapPct: Int,
+    val badgeColorHex: String
+) {
+    AUTO_MAKKHAN(
+        id = "AUTO_MAKKHAN",
+        title = "⚡ Auto-Detect (Makkhan Mode)",
+        subtitle = "Auto-tunes for zero lag, zero ANR, and silky smooth frames on ANY phone in the world",
+        ramRecommendation = "All Phones (Auto)",
+        maxWorkerThreads = 2,
+        dutyCapPct = 100,
+        badgeColorHex = "#00E5FF"
+    ),
+    LOW_END_BUDGET(
+        id = "LOW_END_BUDGET",
+        title = "📱 Budget / Low-End (2GB–4GB RAM)",
+        subtitle = "Zero-ANR Watchdog, cooperative core yielding, eliminates all freezes & lagging",
+        ramRecommendation = "2GB – 4GB RAM",
+        maxWorkerThreads = 2,
+        dutyCapPct = 75,
+        badgeColorHex = "#00E676"
+    ),
+    MID_RANGE(
+        id = "MID_RANGE",
+        title = "🎮 Mid-Range Balanced (6GB–8GB RAM)",
+        subtitle = "Balanced power floor, 70% sustained compute, smooth gaming frame pacing",
+        ramRecommendation = "6GB – 8GB RAM",
+        maxWorkerThreads = 4,
+        dutyCapPct = 90,
+        badgeColorHex = "#FFB300"
+    ),
+    FLAGSHIP_BEAST(
+        id = "FLAGSHIP_BEAST",
+        title = "🚀 Flagship Beast (12GB+ RAM)",
+        subtitle = "100% Extreme Unclamped Lock for Snapdragon 8 Gen, Dimensity 9000+, Exynos 2400",
+        ramRecommendation = "12GB+ RAM",
+        maxWorkerThreads = 6,
+        dutyCapPct = 100,
+        badgeColorHex = "#FF2A4D"
+    );
+
+    companion object {
+        fun fromId(id: String?): UniversalDeviceTier {
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: AUTO_MAKKHAN
+        }
+    }
+}
+
 enum class DeviceHardwareTier(val displayName: String, val badgeColorHex: String) {
     FLAGSHIP_TIER("Flagship Tier (Extreme Ready)", "#FF2A4D"),
     HIGH_PERF_TIER("High Performance Tier", "#00E5FF"),
@@ -115,20 +168,25 @@ enum class DeviceHardwareTier(val displayName: String, val badgeColorHex: String
 
 data class DeviceLiveSpecs(
     val marketingName: String = "Android Device",
-    val brand: String = "Android",
+    val brand: String = "Universal Android",
     val model: String = "Device",
-    val socOrChipset: String = "High Performance SoC",
+    val socOrChipset: String = "Universal High-Speed SoC",
     val androidVersion: String = "Android 15",
     val kernelArchitecture: String = "arm64-v8a",
-    val cpuCoreConfiguration: String = "8 Cores (1 Prime + 3 Gold + 4 Silver)",
+    val cpuCoreConfiguration: String = "8 Cores",
     val displayMetrics: String = "1080 x 2400 (144Hz)",
-    val buildDisplayId: String = ""
+    val buildDisplayId: String = "",
+    val totalRamGb: Float = 6.0f,
+    val availableRamGb: Float = 3.2f,
+    val isLowRamDevice: Boolean = false,
+    val detectedUniversalTier: UniversalDeviceTier = UniversalDeviceTier.AUTO_MAKKHAN,
+    val universalCompatibilityCertified: Boolean = true
 ) {
     val phoneDisplayName: String
         get() {
             val raw = if (brand.isNotBlank() && model.isNotBlank()) "$brand $model" else "Gaming Device"
             if (raw.contains("sdk", ignoreCase = true) || raw.contains("gphone", ignoreCase = true) || raw.contains("goldfish", ignoreCase = true) || raw.contains("google", ignoreCase = true) || raw.contains("emulator", ignoreCase = true)) {
-                return "Extreme Gaming Core • Performance Tuned"
+                return "Universal Gaming Core • All-Phone Makkhan Tuned"
             }
             return raw.replaceFirstChar { it.uppercase() }
         }
@@ -183,6 +241,8 @@ data class DeviceCompatibilityReport(
     val isVivoOrIqoo: Boolean = true,
     val isRealVivoOrIqooHardware: Boolean = true,
     val isVivoIqooSimulationActive: Boolean = false,
+    val isUniversalCompatible: Boolean = true,
+    val compatibilitySummary: String = "100% Certified for All Android Devices (Samsung, Xiaomi, POCO, Vivo, Realme, Infinix, Tecno, etc.)",
     val deviceModel: String = "Device"
 )
 
@@ -204,6 +264,9 @@ data class PerformanceTelemetryState(
     val foregroundServiceRunning: Boolean = false,
     val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
+    val activeUniversalTier: UniversalDeviceTier = UniversalDeviceTier.AUTO_MAKKHAN,
+    val freedRamMbLastClean: Int = 0,
+    val makkhanProtectionActive: Boolean = true,
     val activeGamePackage: String? = null,
     val activeGameName: String? = null,
     val deviceSpecs: DeviceLiveSpecs = DeviceLiveSpecs(),

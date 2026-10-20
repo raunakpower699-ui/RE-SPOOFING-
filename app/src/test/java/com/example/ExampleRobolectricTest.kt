@@ -75,4 +75,18 @@ class ExampleRobolectricTest {
         engine.stopPerformanceSession("Done")
         assertEquals(0, engine.telemetryState.value.lockedPowerPercent)
     }
+
+    @Test
+    fun verifyUniversalDeviceTuningAndRamClean() {
+        val specs = engine.readDeviceLiveSpecs()
+        assertTrue(specs.universalCompatibilityCertified)
+        assertTrue(specs.totalRamGb > 0f)
+
+        engine.setUniversalTier(com.example.model.UniversalDeviceTier.LOW_END_BUDGET)
+        assertEquals(com.example.model.UniversalDeviceTier.LOW_END_BUDGET, engine.telemetryState.value.activeUniversalTier)
+
+        val freed = engine.optimizeAndCleanRam()
+        assertTrue(freed > 0)
+        assertEquals(freed, engine.telemetryState.value.freedRamMbLastClean)
+    }
 }

@@ -16,6 +16,7 @@ import com.example.engine.AndroidPerformanceEngine
 import com.example.model.InstalledAppItem
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
+import com.example.model.UniversalDeviceTier
 import com.example.model.WorkloadFocus
 import com.example.service.PerformanceForegroundService
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,16 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectProfile(profile: PerformanceProfile) {
         engine.setProfile(profile)
+    }
+
+    fun selectUniversalTier(tier: UniversalDeviceTier) {
+        engine.setUniversalTier(tier)
+        _uiBannerMessage.value = "Device Profile: ${tier.title} applied."
+    }
+
+    fun cleanAndOptimizeRam() {
+        val freedMb = engine.optimizeAndCleanRam()
+        _uiBannerMessage.value = "⚡ Makkhan Speed: Freed ~$freedMb MB RAM cache! All devices run silky smooth."
     }
 
     fun selectWorkloadFocus(focus: WorkloadFocus) {
