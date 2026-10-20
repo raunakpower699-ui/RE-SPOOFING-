@@ -148,9 +148,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
 
         startMultiClusterWorkerThreads(profile, workloadFocus)
-        if (workloadFocus.enableGpuGameHints) {
-            gpuController.startOpenGlGpuFloorLock(engineScope, isExtreme)
-        }
+        gpuController.startOpenGlGpuFloorLock(engineScope, isExtreme)
         if (_telemetryState.value.lowLatencyAudioDspLockEnabled) {
             gpuController.startLowLatencyAudioDspLock(engineScope)
         }
@@ -263,38 +261,17 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         stopMultiClusterWorkerThreads()
         if (!focus.enableCpuHints) return
 
-        val userTier = _telemetryState.value.activeUniversalTier
-        val specs = _telemetryState.value.deviceSpecs
-        val effectiveTier = if (userTier == UniversalDeviceTier.AUTO_MAKKHAN) {
-            when {
-                specs.totalRamGb <= 4.2f || Runtime.getRuntime().availableProcessors() <= 4 || specs.isLowRamDevice -> UniversalDeviceTier.LOW_END_BUDGET
-                specs.totalRamGb <= 9.0f -> UniversalDeviceTier.MID_RANGE
-                else -> UniversalDeviceTier.FLAGSHIP_BEAST
-            }
-        } else {
-            userTier
-        }
-
-        val availableProcessors = Runtime.getRuntime().availableProcessors()
-        // Crucial: ALWAYS leave at least 1 core completely free for Android OS, UI thread & Games!
-        val maxSafeCores = (availableProcessors - 1).coerceAtLeast(1)
-        val targetWorkerThreads = effectiveTier.maxWorkerThreads.coerceAtMost(maxSafeCores).coerceIn(1, 6)
-
+        val totalCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
         val targetDutyPct = when (profile) {
-            PerformanceProfile.DIABLO_MODE -> effectiveTier.dutyCapPct
-            PerformanceProfile.BALANCE_MODE -> (effectiveTier.dutyCapPct * 70) / 100
+            PerformanceProfile.DIABLO_MODE -> 100
+            PerformanceProfile.BALANCE_MODE -> 70
             PerformanceProfile.SAVING_MODE -> 25
         }
 
-        for (coreIndex in 0 until targetWorkerThreads) {
+        for (coreIndex in 0 until totalCores) {
             val job = engineScope.launch(Dispatchers.Default) {
-                try {
-                    // Set thread priority to background so UI thread and foreground games ALWAYS get priority!
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                } catch (_: Throwable) {
-                }
                 val crc = CRC32()
-                val chunk = ByteArray(16 * 1024) { (it and 0xFF).toByte() }
+                val chunk = ByteArray(32 * 1024) { (it and 0xFF).toByte() }
                 while (isActive) {
                     val workStart = SystemClock.elapsedRealtimeNanos()
                     val targetWorkNs = (profile.targetWorkDurationNs * targetDutyPct) / 100
@@ -302,10 +279,12 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                         crc.update(chunk)
                     }
                     val restNs = profile.targetWorkDurationNs - targetWorkNs
-                    if (restNs > 200_000L) {
+                    if (restNs > 100_000L) {
                         delay(restNs / 1_000_000L)
+                    } else if (targetDutyPct < 100) {
+                        delay(1L)
                     } else {
-                        // Cooperative yield gives Compose UI and GPU compositor immediate headroom - 100% Zero ANR!
+                        // High performance continuous saturation with cooperative micro-yield
                         yield()
                     }
                 }
@@ -417,7 +396,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             0
         }
 
-        val gpuDutyPct = if (isActive && focus.enableGpuGameHints) realDutyPct else 0
+        val gpuDutyPct = if (isActive) realDutyPct else 0
 
         val cpu = buildCpuStatus(isActive, profile, focus, compatibility, thermal, realDutyPct)
         val gpu = buildGpuStatus(isActive, profile, focus, compatibility, thermal, gpuDutyPct)

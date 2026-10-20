@@ -87,13 +87,6 @@ import com.example.ui.theme.LiquidGlassGradient
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.TelemetryGreen
 import com.example.ui.theme.TelemetryGreenGlow
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.Verified
-import com.example.model.UniversalDeviceTier
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
@@ -103,8 +96,6 @@ fun DashboardScreen(
     onStartPerformanceMode: () -> Unit,
     onStopPerformanceMode: () -> Unit,
     onSelectProfile: (PerformanceProfile) -> Unit,
-    onSelectUniversalTier: (UniversalDeviceTier) -> Unit = {},
-    onCleanAndOptimizeRam: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -120,15 +111,6 @@ fun DashboardScreen(
         // 1. Raunak Exploits Branding Hero Card
         item {
             RaunakExploitsBrandingHero(state = state)
-        }
-
-        // 1.5. NEW FEATURE: Universal All-Phone Makkhan Engine (100% Zero-Lag Protection)
-        item {
-            UniversalDeviceCompatibilityCard(
-                state = state,
-                onSelectUniversalTier = onSelectUniversalTier,
-                onCleanAndOptimizeRam = onCleanAndOptimizeRam
-            )
         }
 
         // 2. Big, Clear, High-Impact Liquid Glass Mode Selection Cards
@@ -578,7 +560,7 @@ private fun LiquidGlassReactorActionButton(
 
                 Column {
                     Text(
-                        text = if (isActive) "RELEASE HARDWARE LOCK" else "ENGAGE ${state.selectedProfile.title.uppercase()}",
+                        text = if (isActive) "🔥 100% MAX CPU POWER LOCKED (ACTIVE)" else "⚡ START 100% MAX CPU POWER",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
@@ -586,7 +568,7 @@ private fun LiquidGlassReactorActionButton(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (isActive) "Tap to return CPU & GPU to normal system idle" else "Tap to lock ${state.selectedProfile.subtitle}",
+                        text = if (isActive) "Tap to return CPU & GPU to normal system idle" else "Instant 1-Tap Extreme 100% CPU lock on all cores",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary.copy(alpha = 0.85f)
                     )
@@ -840,293 +822,3 @@ private fun LiquidPowerStabilityGraph(state: PerformanceTelemetryState) {
     }
 }
 
-@Composable
-private fun UniversalDeviceCompatibilityCard(
-    state: PerformanceTelemetryState,
-    onSelectUniversalTier: (UniversalDeviceTier) -> Unit,
-    onCleanAndOptimizeRam: () -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-    val activeTier = state.activeUniversalTier
-    val specs = state.deviceSpecs
-
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            ElectricCyan.copy(alpha = 0.8f),
-            TelemetryGreen.copy(alpha = 0.5f),
-            Color.White.copy(alpha = 0.15f)
-        )
-    )
-
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = GlassSurfaceElevated,
-        border = androidx.compose.foundation.BorderStroke(1.2.dp, borderBrush),
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(12.dp, RoundedCornerShape(22.dp), ambientColor = ElectricCyan, spotColor = ElectricCyan)
-            .testTag("universal_device_card")
-    ) {
-        Column(
-            modifier = Modifier
-                .background(LiquidGlassGradient)
-                .padding(18.dp)
-        ) {
-            // Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(ElectricCyan.copy(alpha = 0.15f))
-                        .border(1.2.dp, ElectricCyan, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Public,
-                        contentDescription = "Universal Compatibility",
-                        tint = ElectricCyan,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "UNIVERSAL DEVICE TUNING",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary,
-                        letterSpacing = 0.5.sp
-                    )
-                    Text(
-                        text = "MAKKHAN ENGINE • ALL PHONES SUPPORTED",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TelemetryGreen,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = TelemetryGreen.copy(alpha = 0.15f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TelemetryGreen)
-                ) {
-                    Text(
-                        text = "100% OK",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TelemetryGreen,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Detected Hardware Info Pill
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Black.copy(alpha = 0.35f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.PhoneAndroid,
-                            contentDescription = "Phone Specs",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = specs.phoneDisplayName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "RAM: ${specs.totalRamGb} GB (Available: ${specs.availableRamGb} GB) • ${specs.cpuCoreConfiguration}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Text(
-                        text = "Chipset: ${specs.socOrChipset} • ${specs.androidVersionLabel}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ElectricCyan.copy(alpha = 0.9f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "SELECT HARDWARE COMPATIBILITY PROFILE:",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextSecondary,
-                letterSpacing = 0.5.sp
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 4 Selectable Hardware Tiers
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                UniversalDeviceTier.entries.forEach { tier ->
-                    val isSelected = activeTier == tier
-                    val tierColor = when (tier) {
-                        UniversalDeviceTier.AUTO_MAKKHAN -> ElectricCyan
-                        UniversalDeviceTier.LOW_END_BUDGET -> TelemetryGreen
-                        UniversalDeviceTier.MID_RANGE -> DiabloOrange
-                        UniversalDeviceTier.FLAGSHIP_BEAST -> DiabloRed
-                    }
-
-                    val tierBorder = if (isSelected) {
-                        androidx.compose.foundation.BorderStroke(1.5.dp, tierColor)
-                    } else {
-                        androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (isSelected) tierColor.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
-                        border = tierBorder,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSelectUniversalTier(tier)
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                                contentDescription = tier.title,
-                                tint = if (isSelected) tierColor else TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = tier.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = if (isSelected) TextPrimary else TextSecondary
-                                )
-                                Text(
-                                    text = tier.subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isSelected) tierColor else TextSecondary.copy(alpha = 0.7f),
-                                    fontSize = 11.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = tierColor.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(0.8.dp, tierColor.copy(alpha = 0.6f))
-                            ) {
-                                Text(
-                                    text = tier.ramRecommendation,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = tierColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 1-Tap RAM Boost & Clean (Makkhan Speed) Button
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = ElectricCyan.copy(alpha = 0.14f),
-                border = androidx.compose.foundation.BorderStroke(1.2.dp, ElectricCyan),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onCleanAndOptimizeRam()
-                    }
-                    .testTag("makkhan_ram_boost_button")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.RocketLaunch,
-                        contentDescription = "Makkhan Boost",
-                        tint = ElectricCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "⚡ 1-TAP MAKKHAN RAM BOOST",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ElectricCyan,
-                            letterSpacing = 0.5.sp
-                        )
-                        Text(
-                            text = if (state.freedRamMbLastClean > 0) {
-                                "✅ Freed ${state.freedRamMbLastClean} MB RAM Cache • Silky Smooth Guaranteed!"
-                            } else {
-                                "Cleans memory cache & eliminates all stutters on budget & low-RAM phones"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (state.freedRamMbLastClean > 0) TelemetryGreen else TextSecondary,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Hindi & English Universal Guarantee Note
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color.Black.copy(alpha = 0.2f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Verified,
-                        contentDescription = "Verified",
-                        tint = TelemetryGreen,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Duniya ke har phone (Samsung, Xiaomi, POCO, Vivo, Realme, Infinix, Tecno, etc.) mein bina kisi lag ya freeze ke makkhan chalega.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
-    }
-}

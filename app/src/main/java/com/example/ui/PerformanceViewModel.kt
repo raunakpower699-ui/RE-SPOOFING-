@@ -101,7 +101,9 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun startPerformanceMode(associatedGamePackage: String? = null, associatedGameName: String? = null) {
+        val currentProfile = engine.telemetryState.value.selectedProfile
         val success = engine.startPerformanceSession(
+            profile = currentProfile,
             associatedGamePackage = associatedGamePackage,
             associatedGameName = associatedGameName
         )
@@ -110,9 +112,9 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
                 PerformanceForegroundService.startService(getApplication())
             } catch (_: Throwable) {
             }
-            _uiBannerMessage.value = "${engine.telemetryState.value.selectedProfile.title} Active • 100% Lock Engaged"
+            _uiBannerMessage.value = "🔥 ${currentProfile.title} Active • Maximum Full Power Lock Engaged!"
         } else {
-            _uiBannerMessage.value = "Unable to start: Device check restriction."
+            _uiBannerMessage.value = "Unable to start performance session."
         }
     }
 

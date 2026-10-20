@@ -207,9 +207,7 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
                         state = telemetryState,
                         onStartPerformanceMode = { viewModel.startPerformanceMode() },
                         onStopPerformanceMode = { viewModel.stopPerformanceMode() },
-                        onSelectProfile = { viewModel.selectProfile(it) },
-                        onSelectUniversalTier = { viewModel.selectUniversalTier(it) },
-                        onCleanAndOptimizeRam = { viewModel.cleanAndOptimizeRam() }
+                        onSelectProfile = { viewModel.selectProfile(it) }
                     )
                 }
                 AppNavTab.PROFILES -> {
