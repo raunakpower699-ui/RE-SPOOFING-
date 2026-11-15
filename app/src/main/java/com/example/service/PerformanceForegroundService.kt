@@ -33,7 +33,17 @@ class PerformanceForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        val notification = buildPerformanceNotification()
+        val engine = AndroidPerformanceEngine.getInstance(applicationContext)
+        val state = engine.telemetryState.value
+        if (state.isSessionActive) {
+            engine.refreshController.lockRefreshRateGlobally(state.selectedRefreshRate)
+        }
+
+        val notification = buildPerformanceNotification(
+            profileTitle = state.selectedProfile.title,
+            powerPct = if (state.isSessionActive) state.lockedPowerPercent else 100,
+            lockedHz = state.selectedRefreshRate.hz
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -51,7 +61,11 @@ class PerformanceForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun buildPerformanceNotification(): Notification {
+    private fun buildPerformanceNotification(
+        profileTitle: String,
+        powerPct: Int,
+        lockedHz: Int
+    ): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -73,13 +87,13 @@ class PerformanceForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("RE Spoofing • Performance Lock Active")
-            .setContentText("Diablo Mode / Anti-Throttle Duty Lock Active (Zero Throttle)")
+            .setContentTitle("Raunak Exploits • $profileTitle ($powerPct% Lock)")
+            .setContentText("$lockedHz Hz Refresh Rate Pinned • OriginOS 6/7 & 1% Battery Guard Active")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setOngoing(true)
             .setContentIntent(openPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Lock", stopPendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 

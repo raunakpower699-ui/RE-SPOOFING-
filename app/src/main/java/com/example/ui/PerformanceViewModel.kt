@@ -13,9 +13,11 @@ import com.example.data.PerformanceRepository
 import com.example.data.SessionHistoryEntity
 import com.example.data.UserPreferencesEntity
 import com.example.engine.AndroidPerformanceEngine
+import android.view.Window
 import com.example.model.InstalledAppItem
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
+import com.example.model.RefreshRateTarget
 import com.example.model.UniversalDeviceTier
 import com.example.model.WorkloadFocus
 import com.example.service.PerformanceForegroundService
@@ -86,6 +88,31 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
         engine.setProfile(profile)
     }
 
+    fun selectRefreshRate(target: RefreshRateTarget, window: Window? = null) {
+        engine.setRefreshRateTarget(target)
+        if (window != null) {
+            engine.applyWindowRefreshRate(window)
+        }
+        val state = engine.telemetryState.value
+        if (state.isSessionActive) {
+            try {
+                PerformanceForegroundService.startService(getApplication())
+            } catch (_: Throwable) {
+            }
+            _uiBannerMessage.value = "⚡ ${target.label} Refresh Rate LOCKED! Fixed even at 1% battery."
+        } else {
+            _uiBannerMessage.value = "Display Target: ${target.label} selected. Tap Start to lock globally."
+        }
+    }
+
+    fun applyWindowRefreshRate(window: Window?) {
+        engine.applyWindowRefreshRate(window)
+    }
+
+    fun refreshPermissionsAndTelemetry() {
+        engine.refreshStaticAndDynamicTelemetry()
+    }
+
     fun selectUniversalTier(tier: UniversalDeviceTier) {
         engine.setUniversalTier(tier)
         _uiBannerMessage.value = "Device Profile: ${tier.title} applied."
@@ -102,6 +129,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
     fun startPerformanceMode(associatedGamePackage: String? = null, associatedGameName: String? = null) {
         val currentProfile = engine.telemetryState.value.selectedProfile
+        val currentHz = engine.telemetryState.value.selectedRefreshRate
         val success = engine.startPerformanceSession(
             profile = currentProfile,
             associatedGamePackage = associatedGamePackage,
@@ -112,7 +140,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
                 PerformanceForegroundService.startService(getApplication())
             } catch (_: Throwable) {
             }
-            _uiBannerMessage.value = "🔥 ${currentProfile.title} Active • Maximum Full Power Lock Engaged!"
+            _uiBannerMessage.value = "🔥 ${currentProfile.title} + ${currentHz.label} LOCKED! Zero 1% Battery Throttle."
         } else {
             _uiBannerMessage.value = "Unable to start performance session."
         }
@@ -124,7 +152,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             PerformanceForegroundService.stopService(getApplication())
         } catch (_: Throwable) {
         }
-        _uiBannerMessage.value = "Performance session stopped. Returned to normal idle."
+        _uiBannerMessage.value = "Performance & Hz lock stopped. Returned to normal idle."
     }
 
     fun dismissBanner() {

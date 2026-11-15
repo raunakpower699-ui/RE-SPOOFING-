@@ -122,15 +122,27 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             RESpoofingTheme {
-                MainAppContent(viewModel = viewModel)
+                MainAppContent(
+                    viewModel = viewModel,
+                    onApplyWindowRefreshRate = { viewModel.applyWindowRefreshRate(window) }
+                )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshPermissionsAndTelemetry()
+        viewModel.applyWindowRefreshRate(window)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppContent(viewModel: PerformanceViewModel) {
+fun MainAppContent(
+    viewModel: PerformanceViewModel,
+    onApplyWindowRefreshRate: () -> Unit = {}
+) {
     val telemetryState by viewModel.telemetryState.collectAsState()
     val preferences by viewModel.userPreferences.collectAsState()
     val associatedGames by viewModel.associatedGames.collectAsState()
@@ -173,7 +185,11 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
                             color = if (telemetryState.isSessionActive) DiabloRed else GlassBorder
                         ) {
                             Text(
-                                text = if (telemetryState.isSessionActive) "100% LOCKED" else "STANDBY",
+                                text = if (telemetryState.isSessionActive) {
+                                    "${telemetryState.lockedPowerPercent}% • ${telemetryState.selectedRefreshRate.hz}Hz"
+                                } else {
+                                    "${telemetryState.selectedRefreshRate.hz}Hz READY"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextPrimary,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
@@ -205,9 +221,18 @@ fun MainAppContent(viewModel: PerformanceViewModel) {
                 AppNavTab.DASHBOARD -> {
                     DashboardScreen(
                         state = telemetryState,
-                        onStartPerformanceMode = { viewModel.startPerformanceMode() },
+                        onStartPerformanceMode = {
+                            viewModel.startPerformanceMode()
+                            onApplyWindowRefreshRate()
+                        },
                         onStopPerformanceMode = { viewModel.stopPerformanceMode() },
-                        onSelectProfile = { viewModel.selectProfile(it) }
+                        onSelectProfile = { viewModel.selectProfile(it) },
+                        onSelectRefreshRate = { target ->
+                            viewModel.selectRefreshRate(target)
+                            onApplyWindowRefreshRate()
+                        },
+                        onSelectUniversalTier = { viewModel.selectUniversalTier(it) },
+                        onCleanAndOptimizeRam = { viewModel.cleanAndOptimizeRam() }
                     )
                 }
                 AppNavTab.PROFILES -> {

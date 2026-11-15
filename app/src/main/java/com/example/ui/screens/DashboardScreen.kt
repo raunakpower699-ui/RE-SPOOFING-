@@ -70,6 +70,10 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
+import com.example.model.RefreshRateTarget
+import com.example.model.UniversalDeviceTier
+import com.example.ui.components.RefreshRateLockControlCard
+import com.example.ui.components.UniversalMakkhanTunerCard
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.DiabloGlassGradient
 import com.example.ui.theme.DiabloOrange
@@ -96,6 +100,9 @@ fun DashboardScreen(
     onStartPerformanceMode: () -> Unit,
     onStopPerformanceMode: () -> Unit,
     onSelectProfile: (PerformanceProfile) -> Unit,
+    onSelectRefreshRate: (RefreshRateTarget) -> Unit = {},
+    onSelectUniversalTier: (UniversalDeviceTier) -> Unit = {},
+    onCleanAndOptimizeRam: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -111,6 +118,14 @@ fun DashboardScreen(
         // 1. Raunak Exploits Branding Hero Card
         item {
             RaunakExploitsBrandingHero(state = state)
+        }
+
+        // 2. Refresh Rate Lock Selector (90 / 120 / 144 / 165 Hz) + 1% Battery Guard
+        item {
+            RefreshRateLockControlCard(
+                state = state,
+                onSelectRefreshRate = onSelectRefreshRate
+            )
         }
 
         // 2. Big, Clear, High-Impact Liquid Glass Mode Selection Cards
@@ -188,12 +203,21 @@ fun DashboardScreen(
             )
         }
 
-        // 4. Real Hardware Liquid Glass Telemetry Gauges
+        // 4. Universal Makkhan RAM Booster & Tier Tuner
+        item {
+            UniversalMakkhanTunerCard(
+                state = state,
+                onSelectUniversalTier = onSelectUniversalTier,
+                onCleanAndOptimizeRam = onCleanAndOptimizeRam
+            )
+        }
+
+        // 5. Real Hardware Liquid Glass Telemetry Gauges
         item {
             LiquidHardwareTelemetryGauges(state = state)
         }
 
-        // 5. Liquid Power Stability Wave Graph
+        // 6. Liquid Power Stability Wave Graph
         item {
             LiquidPowerStabilityGraph(state = state)
         }
@@ -277,7 +301,7 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "BY RAUNAK EXPLOITS TECHNOLOGY",
+                            text = "ORIGINOS 6/7 • ANDROID 16 OVERDRIVE",
                             style = MaterialTheme.typography.labelSmall,
                             color = ElectricCyan,
                             fontWeight = FontWeight.Bold,
@@ -294,7 +318,7 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
                         )
                     ) {
                         Text(
-                            text = if (isActive) "${state.lockedPowerPercent}% LOCKED" else "STANDBY",
+                            text = if (isActive) "${state.lockedPowerPercent}% • ${state.selectedRefreshRate.hz}Hz" else "STANDBY",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isActive) activeColor else TextSecondary,
                             fontWeight = FontWeight.ExtraBold,
@@ -316,9 +340,9 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
 
                 Text(
                     text = if (isActive) {
-                        "Hardware compute lock engaged at ${state.lockedPowerPercent}% • Zero governor throttling"
+                        "Locked at ${state.lockedPowerPercent}% CPU/GPU & ${state.selectedRefreshRate.label} • 1% Battery Bypass Active"
                     } else {
-                        "Select a mode below and tap the reactor button to lock hardware clocks"
+                        "${state.deviceSpecs.androidVersionLabel} • Select Hz (90/120/144/165) & Mode below"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
@@ -558,17 +582,28 @@ private fun LiquidGlassReactorActionButton(
 
                 Spacer(modifier = Modifier.width(14.dp))
 
+                val targetPowerLabel = when (state.selectedProfile) {
+                    PerformanceProfile.DIABLO_MODE -> "100% MAX POWER"
+                    PerformanceProfile.BALANCE_MODE -> "70% BALANCE POWER"
+                    PerformanceProfile.SAVING_MODE -> "25% COOL SAVER"
+                }
+                val hzLabel = state.selectedRefreshRate.label
+
                 Column {
                     Text(
-                        text = if (isActive) "🔥 100% MAX CPU POWER LOCKED (ACTIVE)" else "⚡ START 100% MAX CPU POWER",
+                        text = if (isActive) "🔥 $targetPowerLabel + $hzLabel LOCKED" else "⚡ START $targetPowerLabel + $hzLabel",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
-                        letterSpacing = 0.8.sp
+                        letterSpacing = 0.6.sp
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (isActive) "Tap to return CPU & GPU to normal system idle" else "Instant 1-Tap Extreme 100% CPU lock on all cores",
+                        text = if (isActive) {
+                            "Pinned even at 1% battery • Tap to release locks"
+                        } else {
+                            "Locks CPU/GPU & $hzLabel continuously (Zero 1% Battery Drop)"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary.copy(alpha = 0.85f)
                     )
@@ -614,11 +649,11 @@ private fun LiquidHardwareTelemetryGauges(state: PerformanceTelemetryState) {
                 )
 
                 LiquidTelemetryMetricBox(
-                    label = "GPU FLOOR LOCK",
-                    value = if (state.isSessionActive) "${state.gpuLockedDutyPercent}%" else "SYSTEM IDLE",
-                    subtext = "eglSwapInterval(0)",
-                    color = if (state.isSessionActive) ElectricCyan else TextSecondary,
-                    progress = if (state.isSessionActive) state.gpuLockedDutyPercent / 100f else 0f,
+                    label = "REFRESH RATE LOCK",
+                    value = if (state.isSessionActive) "${state.lockedRefreshRateHz} Hz" else "${state.selectedRefreshRate.hz} Hz",
+                    subtext = if (state.isSessionActive) "Pinned (1% Safe)" else "Panel Max ${state.deviceSpecs.panelMaxRefreshRateHz}Hz",
+                    color = if (state.isSessionActive) TelemetryGreen else ElectricCyan,
+                    progress = state.selectedRefreshRate.hz / 165f,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -630,20 +665,20 @@ private fun LiquidHardwareTelemetryGauges(state: PerformanceTelemetryState) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 LiquidTelemetryMetricBox(
-                    label = "BATTERY TEMP",
-                    value = "${state.batteryStatus.temperatureCelsius}°C",
-                    subtext = "Battery: ${state.batteryStatus.levelPercent}%",
-                    color = if (state.batteryStatus.temperatureCelsius > 44f) DiabloOrange else TelemetryGreen,
-                    progress = (state.batteryStatus.temperatureCelsius / 60f).coerceIn(0f, 1f),
+                    label = "GPU FLOOR LOCK",
+                    value = if (state.isSessionActive) "${state.gpuLockedDutyPercent}%" else "SYSTEM IDLE",
+                    subtext = "${state.gpuFlopOverdriveGflops} GFLOPS • eglSwap(0)",
+                    color = if (state.isSessionActive) ElectricCyan else TextSecondary,
+                    progress = if (state.isSessionActive) state.gpuLockedDutyPercent / 100f else 0f,
                     modifier = Modifier.weight(1f)
                 )
 
                 LiquidTelemetryMetricBox(
-                    label = "THERMAL PROTECTION",
-                    value = if (state.isSessionActive) "BYPASS ACTIVE" else "NOMINAL",
-                    subtext = "Zero Governor Throttle",
-                    color = if (state.isSessionActive) TelemetryGreen else TextSecondary,
-                    progress = if (state.isSessionActive) 1f else 0.2f,
+                    label = "1% BATTERY GUARD",
+                    value = "${state.batteryStatus.levelPercent}% • ${state.batteryStatus.temperatureCelsius}°C",
+                    subtext = if (state.isSessionActive) "Zero 1% Drop • Bypass ON" else "Ready • ${state.thermalStatus.displaySummary}",
+                    color = if (state.batteryStatus.temperatureCelsius > 44f) DiabloOrange else TelemetryGreen,
+                    progress = (state.batteryStatus.levelPercent / 100f).coerceIn(0.02f, 1f),
                     modifier = Modifier.weight(1f)
                 )
             }

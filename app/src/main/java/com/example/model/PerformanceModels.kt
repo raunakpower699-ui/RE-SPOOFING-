@@ -36,8 +36,8 @@ enum class PerformanceProfile(
     SAVING_MODE(
         id = "SAVING_MODE",
         title = "Battery Saving Mode",
-        subtitle = "Battery Saver • Thermal Cool-Down (25% Target)",
-        description = "Energy saving and thermal cool-down profile. Throttles CPU and GPU to ~25%, cools down hardware rapidly after heavy runs, caps screen refresh to 60Hz, and extends battery life.",
+        subtitle = "Cool-Down Saver • Selected Hz Stays Pinned",
+        description = "Energy saving and thermal cool-down profile. Throttles CPU and GPU compute to ~25% to cool hardware while keeping your selected 90/120/144/165 Hz refresh rate pinned—even at 1% battery.",
         requestCpuHints = false,
         requestGpuOrGameHints = false,
         requestSustainedMode = false,
@@ -61,6 +61,37 @@ enum class PerformanceProfile(
             }
         }
     }
+}
+
+enum class RefreshRateTarget(
+    val hz: Int,
+    val label: String,
+    val badge: String,
+    val frameDurationNs: Long
+) {
+    HZ_90(90, "90 Hz", "SMOOTH", 11_111_111L),
+    HZ_120(120, "120 Hz", "PRO", 8_333_333L),
+    HZ_144(144, "144 Hz", "ESPORTS", 6_944_444L),
+    HZ_165(165, "165 Hz", "ULTRA", 6_060_606L);
+
+    companion object {
+        fun fromHz(hz: Int): RefreshRateTarget {
+            return entries.firstOrNull { it.hz == hz } ?: HZ_144
+        }
+    }
+}
+
+data class RefreshRatePermissionStatus(
+    val canDrawOverlays: Boolean = false,
+    val canWriteSystemSettings: Boolean = false,
+    val isBatteryOptimizationIgnored: Boolean = false,
+    val panelMaxHz: Int = 144,
+    val supportedPanelHz: List<Int> = listOf(60, 90, 120, 144),
+    val globalOverlayAnchorActive: Boolean = false,
+    val systemSettingsLocked: Boolean = false
+) {
+    val allPermissionsReady: Boolean
+        get() = canDrawOverlays && canWriteSystemSettings && isBatteryOptimizationIgnored
 }
 
 enum class WorkloadFocus(
@@ -180,7 +211,9 @@ data class DeviceLiveSpecs(
     val availableRamGb: Float = 3.2f,
     val isLowRamDevice: Boolean = false,
     val detectedUniversalTier: UniversalDeviceTier = UniversalDeviceTier.AUTO_MAKKHAN,
-    val universalCompatibilityCertified: Boolean = true
+    val universalCompatibilityCertified: Boolean = true,
+    val panelMaxRefreshRateHz: Int = 144,
+    val supportedRefreshRatesHz: List<Int> = listOf(60, 90, 120, 144)
 ) {
     val phoneDisplayName: String
         get() {
@@ -264,6 +297,11 @@ data class PerformanceTelemetryState(
     val foregroundServiceRunning: Boolean = false,
     val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
+    val selectedRefreshRate: RefreshRateTarget = RefreshRateTarget.HZ_144,
+    val lockedRefreshRateHz: Int = 0,
+    val batteryBypass1PercentLockEnabled: Boolean = true,
+    val originOsAndroid16Optimized: Boolean = true,
+    val refreshRatePermissions: RefreshRatePermissionStatus = RefreshRatePermissionStatus(),
     val activeUniversalTier: UniversalDeviceTier = UniversalDeviceTier.AUTO_MAKKHAN,
     val freedRamMbLastClean: Int = 0,
     val makkhanProtectionActive: Boolean = true,

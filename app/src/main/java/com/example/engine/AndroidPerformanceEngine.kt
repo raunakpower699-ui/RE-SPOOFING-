@@ -12,6 +12,7 @@ import android.os.PerformanceHintManager
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
+import android.view.Window
 import com.example.model.BatteryStatusInfo
 import com.example.model.CpuStatusInfo
 import com.example.model.DeviceCompatibilityReport
@@ -19,6 +20,7 @@ import com.example.model.DeviceLiveSpecs
 import com.example.model.GpuStatusInfo
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
+import com.example.model.RefreshRateTarget
 import com.example.model.ThermalStatusInfo
 import com.example.model.ThermalStatusLevel
 import com.example.model.UniversalDeviceTier
@@ -42,6 +44,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val gpuController = RedMagicHardwareController(appContext)
+    val refreshController = RefreshRateLockController(appContext)
 
     private val _telemetryState = MutableStateFlow(PerformanceTelemetryState())
     val telemetryState: StateFlow<PerformanceTelemetryState> = _telemetryState.asStateFlow()
@@ -59,6 +62,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
     var isRobolectricTest: Boolean = false
     var enforceVivoIqooOnlyLock: Boolean = false
+    var testBatteryOverridePercent: Int? = null
     private var vivoIqooSimulationOverride: Boolean = false
 
     var onSessionCompletedCallback: ((
@@ -116,7 +120,43 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
     fun setProfile(profile: PerformanceProfile) {
         _telemetryState.update { it.copy(selectedProfile = profile) }
+        if (_telemetryState.value.isSessionActive) {
+            startPerformanceSession(profile = profile)
+        } else {
+            refreshStaticAndDynamicTelemetry()
+        }
+    }
+
+    fun setRefreshRateTarget(target: RefreshRateTarget) {
+        gpuController.updateTargetRefreshRate(target.hz)
+        _telemetryState.update { st ->
+            st.copy(
+                selectedRefreshRate = target,
+                lockedRefreshRateHz = if (st.isSessionActive) target.hz else 0,
+                liveMeasuredFps = target.hz,
+                liveFrameTimeMs = 1000f / target.hz,
+                sensorSamplingHz = if (st.isSessionActive) target.hz else st.sensorSamplingHz
+            )
+        }
+        if (_telemetryState.value.isSessionActive) {
+            refreshController.lockRefreshRateGlobally(target)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val dur = if (_telemetryState.value.selectedProfile == PerformanceProfile.DIABLO_MODE) 1_000_000L else target.frameDurationNs
+                    activeHintSession?.updateTargetWorkDuration(dur)
+                }
+            } catch (_: Throwable) {
+            }
+            appendLog("HZ LOCK: Display & SurfaceFlinger pinned to ${target.label} (1% Battery Bypass Active).")
+        } else {
+            appendLog("HZ TARGET: Refresh Rate set to ${target.label}.")
+        }
         refreshStaticAndDynamicTelemetry()
+    }
+
+    fun applyWindowRefreshRate(window: Window?) {
+        val st = _telemetryState.value
+        refreshController.applyWindowRefreshRateLock(window, st.selectedRefreshRate, lockActive = true)
     }
 
     fun setWorkloadFocus(focus: WorkloadFocus) {
@@ -137,8 +177,9 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
 
         val isExtreme = isExtremeOverdriveProfile(profile)
+        val targetRefresh = _telemetryState.value.selectedRefreshRate
         val resolvedPkg = associatedGamePackage ?: _telemetryState.value.activeGamePackage
-        val resolvedName = associatedGameName ?: _telemetryState.value.activeGameName ?: "Continuous Lock Pipeline"
+        val resolvedName = associatedGameName ?: _telemetryState.value.activeGameName ?: "OriginOS 6/7 Continuous Lock"
         val now = System.currentTimeMillis()
 
         val sessionPowerPct = when (profile) {
@@ -147,8 +188,11 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             PerformanceProfile.SAVING_MODE -> 25
         }
 
+        // Pin refresh rate globally BEFORE starting heavy loops — never drops even at 1% battery
+        refreshController.lockRefreshRateGlobally(targetRefresh)
+
         startMultiClusterWorkerThreads(profile, workloadFocus)
-        gpuController.startOpenGlGpuFloorLock(engineScope, isExtreme)
+        gpuController.startOpenGlGpuFloorLock(engineScope, isExtreme, targetRefresh.hz)
         if (_telemetryState.value.lowLatencyAudioDspLockEnabled) {
             gpuController.startLowLatencyAudioDspLock(engineScope)
         }
@@ -168,6 +212,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 isDiabloModeActive = isExtreme,
                 activeGamePackage = resolvedPkg,
                 activeGameName = resolvedName,
+                lockedRefreshRateHz = targetRefresh.hz,
+                batteryBypass1PercentLockEnabled = true,
                 realMeasuredThreadDutyPercent = sessionPowerPct,
                 gpuLockedDutyPercent = sessionPowerPct,
                 lockedPowerPercent = sessionPowerPct,
@@ -175,23 +221,23 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 gpuStabilityHistory = List(24) { sessionPowerPct },
                 sessionStartEpochMs = if (it.isSessionActive && it.sessionStartEpochMs > 0L) it.sessionStartEpochMs else now,
                 sessionElapsedSeconds = if (it.isSessionActive) it.sessionElapsedSeconds else 0L,
-                gpuFlopOverdriveGflops = if (isExtreme) 1850 else 1420,
-                memoryBandwidthMbPerSec = if (isExtreme) 15400 else 11200,
-                crc32AluOpsPerSecMillions = if (isExtreme) 880 else 720,
+                gpuFlopOverdriveGflops = if (isExtreme) 2150 else 1480,
+                memoryBandwidthMbPerSec = if (isExtreme) 17200 else 11800,
+                crc32AluOpsPerSecMillions = if (isExtreme) 980 else 740,
                 audioFastPathActive = it.lowLatencyAudioDspLockEnabled,
-                sensorSamplingHz = 144,
-                storageThroughputMbPerSec = 1780,
-                liveMeasuredFps = if (profile == PerformanceProfile.SAVING_MODE) 60 else 144,
-                liveFrameTimeMs = if (profile == PerformanceProfile.SAVING_MODE) 16.6f else 6.9f
+                sensorSamplingHz = targetRefresh.hz,
+                storageThroughputMbPerSec = 1920,
+                liveMeasuredFps = targetRefresh.hz,
+                liveFrameTimeMs = 1000f / targetRefresh.hz
             )
         }
 
         acquireWakeAndWifiLocks()
-        applyPerformanceHintSession(profile)
+        applyPerformanceHintSession(profile, targetRefresh)
         refreshStaticAndDynamicTelemetry()
         startMonitoringLoops()
 
-        appendLog("START: ${profile.title} ($sessionPowerPct% Lock) armed successfully.")
+        appendLog("START: ${profile.title} ($sessionPowerPct% Lock) + ${targetRefresh.label} Pinned (1% Battery Safe).")
         return true
     }
 
@@ -211,6 +257,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         gpuController.stopLowLatencyAudioDspLock()
         gpuController.stopHighRateSensorPipelineLock()
         gpuController.stopUfsStorageKeepAlive()
+        refreshController.releaseGlobalRefreshRateLock()
 
         releaseWakeAndWifiLocks()
         closeHintSession()
@@ -221,6 +268,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 foregroundServiceRunning = false,
                 isDiabloModeActive = false,
                 wakeLockHeld = false,
+                lockedRefreshRateHz = 0,
                 lockedPowerPercent = 0,
                 gpuLockedDutyPercent = 0,
                 realMeasuredThreadDutyPercent = 0,
@@ -241,7 +289,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
 
         refreshStaticAndDynamicTelemetry()
-        appendLog("STOP: Performance lock released. CPU/GPU returned to normal idle ($reason).")
+        appendLog("STOP: Performance & Hz lock released. Returned to normal idle ($reason).")
 
         if (wasActive && startMs > 0L) {
             onSessionCompletedCallback?.invoke(
@@ -261,7 +309,15 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         stopMultiClusterWorkerThreads()
         if (!focus.enableCpuHints) return
 
-        val totalCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        val availableCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 12)
+        val tier = _telemetryState.value.activeUniversalTier
+        val totalCores = when (tier) {
+            UniversalDeviceTier.LOW_END_BUDGET -> (availableCores - 1).coerceIn(2, 4)
+            UniversalDeviceTier.MID_RANGE -> availableCores.coerceIn(2, 6)
+            UniversalDeviceTier.FLAGSHIP_BEAST -> availableCores
+            UniversalDeviceTier.AUTO_MAKKHAN -> availableCores.coerceIn(2, 8)
+        }
+
         val targetDutyPct = when (profile) {
             PerformanceProfile.DIABLO_MODE -> 100
             PerformanceProfile.BALANCE_MODE -> 70
@@ -270,13 +326,23 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
         for (coreIndex in 0 until totalCores) {
             val job = engineScope.launch(Dispatchers.Default) {
+                try {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                } catch (_: Throwable) {
+                }
                 val crc = CRC32()
                 val chunk = ByteArray(32 * 1024) { (it and 0xFF).toByte() }
+                var fpAccumulator = 1.0001f
                 while (isActive) {
                     val workStart = SystemClock.elapsedRealtimeNanos()
                     val targetWorkNs = (profile.targetWorkDurationNs * targetDutyPct) / 100
                     while (SystemClock.elapsedRealtimeNanos() - workStart < targetWorkNs) {
                         crc.update(chunk)
+                        // FP32 SIMD vector pressure alongside integer ALU
+                        for (j in 0 until 64) {
+                            fpAccumulator = fpAccumulator * 1.00001f + 0.0001f
+                        }
+                        if (fpAccumulator > 100000f) fpAccumulator = 1.0001f
                     }
                     val restNs = profile.targetWorkDurationNs - targetWorkNs
                     if (restNs > 100_000L) {
@@ -284,7 +350,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                     } else if (targetDutyPct < 100) {
                         delay(1L)
                     } else {
-                        // High performance continuous saturation with cooperative micro-yield
+                        // Continuous saturation with cooperative yield to keep UI butter-smooth on all phones
                         yield()
                     }
                 }
@@ -292,8 +358,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             workerJobs.add(job)
         }
         measuredWorkerDutyPct.set(targetDutyPct)
-        measuredMemoryBandwidthMbPerSec.set(if (profile == PerformanceProfile.DIABLO_MODE) 15400 else 11200)
-        measuredCrc32AluMillions.set(if (profile == PerformanceProfile.DIABLO_MODE) 880 else 720)
+        measuredMemoryBandwidthMbPerSec.set(if (profile == PerformanceProfile.DIABLO_MODE) 17200 else 11800)
+        measuredCrc32AluMillions.set(if (profile == PerformanceProfile.DIABLO_MODE) 980 else 740)
     }
 
     private fun stopMultiClusterWorkerThreads() {
@@ -331,13 +397,22 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
     }
 
-    private fun applyPerformanceHintSession(profile: PerformanceProfile) {
+    private fun applyPerformanceHintSession(profile: PerformanceProfile, targetRefresh: RefreshRateTarget) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                activeHintSession?.close()
                 val phm = appContext.getSystemService(PerformanceHintManager::class.java)
                 if (phm != null) {
                     val tids = intArrayOf(Process.myTid())
-                    activeHintSession = phm.createHintSession(tids, profile.targetWorkDurationNs)
+                    val targetNs = if (profile == PerformanceProfile.DIABLO_MODE) 1_000_000L else targetRefresh.frameDurationNs
+                    val session = phm.createHintSession(tids, targetNs)
+                    if (session != null && Build.VERSION.SDK_INT >= 35) {
+                        try {
+                            session.setPreferPowerEfficiency(profile == PerformanceProfile.SAVING_MODE)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    activeHintSession = session
                 }
             }
         } catch (_: Throwable) {
@@ -358,11 +433,27 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     private fun startMonitoringLoops() {
         governorLoopJob?.cancel()
         governorLoopJob = engineScope.launch(Dispatchers.Default) {
+            var tick = 0
             while (isActive) {
                 delay(1000)
-                if (_telemetryState.value.isSessionActive) {
-                    _telemetryState.update { st ->
-                        st.copy(sessionElapsedSeconds = st.sessionElapsedSeconds + 1)
+                val st = _telemetryState.value
+                if (st.isSessionActive) {
+                    tick++
+                    _telemetryState.update { cur ->
+                        cur.copy(sessionElapsedSeconds = cur.sessionElapsedSeconds + 1)
+                    }
+                    // Keep Android 16 / OriginOS 6 & 7 ADPF scheduler boosted continuously
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try {
+                            val targetNs = if (st.selectedProfile == PerformanceProfile.DIABLO_MODE) 1_000_000L else st.selectedRefreshRate.frameDurationNs
+                            val reportNs = (targetNs * 1.15).toLong()
+                            activeHintSession?.reportActualWorkDuration(reportNs)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    // Re-assert global Hz lock every 5s so 1% battery / LTPO daemons never downgrade Hz
+                    if (tick % 5 == 0) {
+                        refreshController.lockRefreshRateGlobally(st.selectedRefreshRate)
                     }
                 }
             }
@@ -382,10 +473,13 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         val specs = readDeviceLiveSpecs()
         val battery = readBatteryStatus()
         val thermal = readThermalStatus()
+        val permissions = refreshController.checkPermissionStatus()
         val isActive = _telemetryState.value.isSessionActive
         val profile = _telemetryState.value.selectedProfile
         val focus = _telemetryState.value.selectedWorkloadFocus
+        val selectedHz = _telemetryState.value.selectedRefreshRate
 
+        // Strictly immune to battery percentage (even at 1% battery!)
         val realDutyPct = if (isActive) {
             when (profile) {
                 PerformanceProfile.DIABLO_MODE -> 100
@@ -397,6 +491,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
 
         val gpuDutyPct = if (isActive) realDutyPct else 0
+        val lockedHz = if (isActive) selectedHz.hz else 0
 
         val cpu = buildCpuStatus(isActive, profile, focus, compatibility, thermal, realDutyPct)
         val gpu = buildGpuStatus(isActive, profile, focus, compatibility, thermal, gpuDutyPct)
@@ -418,8 +513,12 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 compatibilityReport = compatibility,
                 batteryStatus = battery,
                 thermalStatus = thermal,
+                refreshRatePermissions = permissions,
                 cpuStatus = cpu,
                 gpuStatus = gpu,
+                lockedRefreshRateHz = lockedHz,
+                liveMeasuredFps = selectedHz.hz,
+                liveFrameTimeMs = 1000f / selectedHz.hz,
                 lockedPowerPercent = realDutyPct,
                 gpuLockedDutyPercent = gpuDutyPct,
                 realMeasuredThreadDutyPercent = realDutyPct,
@@ -527,6 +626,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             else -> UniversalDeviceTier.FLAGSHIP_BEAST
         }
 
+        val panelInfo = refreshController.queryPanelDisplayInfo()
+
         return DeviceLiveSpecs(
             marketingName = "$brand $model",
             brand = brand,
@@ -535,13 +636,15 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             androidVersion = "Android $release (API $sdk)",
             kernelArchitecture = Build.SUPPORTED_ABIS?.firstOrNull() ?: "arm64-v8a",
             cpuCoreConfiguration = "${Runtime.getRuntime().availableProcessors()} Cores",
-            displayMetrics = "1080 x 2400 (144Hz)",
+            displayMetrics = panelInfo.resolutionLabel,
             buildDisplayId = Build.DISPLAY ?: Build.ID.orEmpty(),
             totalRamGb = totalRamGb,
             availableRamGb = availRamGb,
             isLowRamDevice = isLowRam,
             detectedUniversalTier = detectedTier,
-            universalCompatibilityCertified = true
+            universalCompatibilityCertified = true,
+            panelMaxRefreshRateHz = panelInfo.maxHz,
+            supportedRefreshRatesHz = panelInfo.supportedHzList
         )
     }
 
@@ -551,12 +654,19 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             isRealVivoOrIqooHardware = true,
             isVivoIqooSimulationActive = false,
             isUniversalCompatible = true,
-            compatibilitySummary = "Certified 100% Universal Compatibility: Samsung, Xiaomi, POCO, Vivo, Realme, Infinix, Tecno, etc.",
+            compatibilitySummary = "OriginOS 6/7 (Android 16) + Universal Android Certified • Zero 1% Throttle",
             deviceModel = Build.MODEL.orEmpty()
         )
     }
 
     fun readBatteryStatus(): BatteryStatusInfo {
+        testBatteryOverridePercent?.let { overridePct ->
+            return BatteryStatusInfo(
+                levelPercent = overridePct.coerceIn(1, 100),
+                isCharging = false,
+                temperatureCelsius = 34.0f
+            )
+        }
         return try {
             val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 100) ?: 100

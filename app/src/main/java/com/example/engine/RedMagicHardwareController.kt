@@ -36,8 +36,15 @@ class RedMagicHardwareController(private val context: Context) {
     private var storageJob: Job? = null
 
     private var audioTrack: AudioTrack? = null
+    @Volatile
+    private var currentTargetHz: Int = 144
 
-    fun startOpenGlGpuFloorLock(scope: CoroutineScope, isExtreme: Boolean) {
+    fun updateTargetRefreshRate(hz: Int) {
+        currentTargetHz = hz.coerceIn(60, 165)
+    }
+
+    fun startOpenGlGpuFloorLock(scope: CoroutineScope, isExtreme: Boolean, targetHz: Int = 144) {
+        currentTargetHz = targetHz.coerceIn(60, 165)
         if (isGpuRunning.getAndSet(true)) return
 
         gpuJob = scope.launch(Dispatchers.Default) {
@@ -71,8 +78,8 @@ class RedMagicHardwareController(private val context: Context) {
                 eglContext = EGL14.eglCreateContext(eglDisplay, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
                 val pbufferAttribs = intArrayOf(
-                    EGL14.EGL_WIDTH, 64,
-                    EGL14.EGL_HEIGHT, 64,
+                    EGL14.EGL_WIDTH, 128,
+                    EGL14.EGL_HEIGHT, 128,
                     EGL14.EGL_NONE
                 )
                 eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, config, pbufferAttribs, 0)
@@ -89,14 +96,21 @@ class RedMagicHardwareController(private val context: Context) {
                 """.trimIndent()
 
                 val fragmentShaderCode = """
-                    precision mediump float;
+                    precision highp float;
                     uniform vec2 uResolution;
                     uniform float uTime;
                     void main() {
                         vec2 st = gl_FragCoord.xy / uResolution.xy;
                         vec3 color = vec3(0.0);
                         float d = distance(st, vec2(0.5));
-                        color = vec3(sin(uTime + d * 10.0), cos(uTime - d * 10.0), sin(uTime * 0.5));
+                        for (int i = 0; i < 4; i++) {
+                            float fi = float(i) + 1.0;
+                            color += vec3(
+                                sin(uTime * fi + d * 12.0),
+                                cos(uTime * fi - d * 10.0),
+                                sin(uTime * 0.5 * fi + st.x * 6.0)
+                            ) * 0.25;
+                        }
                         gl_FragColor = vec4(color, 1.0);
                     }
                 """.trimIndent()
@@ -120,7 +134,7 @@ class RedMagicHardwareController(private val context: Context) {
 
                 var frameCount = 0
                 while (isActive && isGpuRunning.get()) {
-                    GLES20.glViewport(0, 0, 64, 64)
+                    GLES20.glViewport(0, 0, 128, 128)
                     GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
                     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
@@ -128,18 +142,18 @@ class RedMagicHardwareController(private val context: Context) {
                     GLES20.glEnableVertexAttribArray(vPositionLoc)
                     GLES20.glVertexAttribPointer(vPositionLoc, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
 
-                    GLES20.glUniform2f(uResolutionLoc, 64f, 64f)
+                    GLES20.glUniform2f(uResolutionLoc, 128f, 128f)
                     GLES20.glUniform1f(uTimeLoc, frameCount * 0.05f)
 
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
                     GLES20.glFinish()
 
                     frameCount++
-                    // Universal safe pacing: keeps GPU clock floor locked at max without driver hang
+                    val hzPaceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(5L, 16L)
                     if (isExtreme) {
-                        SystemClock.sleep(6) // ~160Hz lock
+                        SystemClock.sleep(hzPaceMs.coerceAtMost(6L)) // Synced to 165Hz/144Hz floor without driver hang
                     } else {
-                        SystemClock.sleep(12) // ~85Hz lock
+                        SystemClock.sleep(hzPaceMs)
                     }
                 }
             } catch (_: Throwable) {
@@ -223,7 +237,8 @@ class RedMagicHardwareController(private val context: Context) {
         if (isSensorRunning.getAndSet(true)) return
         sensorJob = scope.launch(Dispatchers.Default) {
             while (isActive && isSensorRunning.get()) {
-                SystemClock.sleep(10) // ~100Hz safe polling rate
+                val paceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(6L, 12L)
+                SystemClock.sleep(paceMs)
             }
         }
     }

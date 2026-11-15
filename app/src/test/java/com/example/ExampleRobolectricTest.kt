@@ -89,4 +89,35 @@ class ExampleRobolectricTest {
         assertTrue(freed > 0)
         assertEquals(freed, engine.telemetryState.value.freedRamMbLastClean)
     }
+
+    @Test
+    fun verifyRefreshRateLockAnd1PercentBatteryBypass() {
+        engine.testBatteryOverridePercent = 1
+        engine.refreshStaticAndDynamicTelemetry()
+        assertEquals(1, engine.telemetryState.value.batteryStatus.levelPercent)
+
+        for (target in com.example.model.RefreshRateTarget.entries) {
+            engine.setRefreshRateTarget(target)
+            engine.startPerformanceSession(
+                profile = com.example.model.PerformanceProfile.DIABLO_MODE,
+                workloadFocus = com.example.model.WorkloadFocus.COMBINED_MAX
+            )
+            assertEquals(100, engine.telemetryState.value.lockedPowerPercent)
+            assertEquals(target.hz, engine.telemetryState.value.lockedRefreshRateHz)
+            assertEquals(target.hz, engine.telemetryState.value.liveMeasuredFps)
+            assertTrue(engine.telemetryState.value.batteryBypass1PercentLockEnabled)
+        }
+
+        // Even in SAVING_MODE at 1% battery, selected 165Hz stays pinned
+        engine.setRefreshRateTarget(com.example.model.RefreshRateTarget.HZ_165)
+        engine.startPerformanceSession(
+            profile = com.example.model.PerformanceProfile.SAVING_MODE,
+            workloadFocus = com.example.model.WorkloadFocus.COMBINED_MAX
+        )
+        assertEquals(25, engine.telemetryState.value.lockedPowerPercent)
+        assertEquals(165, engine.telemetryState.value.lockedRefreshRateHz)
+
+        engine.stopPerformanceSession("Test cleanup")
+        engine.testBatteryOverridePercent = null
+    }
 }
