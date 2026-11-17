@@ -209,4 +209,32 @@ class ExampleRobolectricTest {
         engine.stopPerformanceSession("Test cleanup")
         assertFalse(engine.telemetryState.value.floatingFpsOverlayVisible)
     }
+
+    @Test
+    fun verifyCpuOnlyGpuOnlyAndCombinedWorkloadFocus() {
+        // 1. CPU Multi-Core only: CPU runs at 100%, GPU stays idle at 0%
+        engine.startPerformanceSession(
+            profile = PerformanceProfile.DIABLO_MODE,
+            workloadFocus = WorkloadFocus.CPU_FOCUS
+        )
+        var state = engine.telemetryState.value
+        assertEquals(100, state.realMeasuredThreadDutyPercent)
+        assertEquals(0, state.gpuLockedDutyPercent)
+        assertEquals("IDLE (CPU FOCUS)", state.gpuStatus.requestState)
+
+        // 2. Switch live to GPU Focused: GPU runs at 100%, CPU goes idle at 0%
+        engine.setWorkloadFocus(WorkloadFocus.GPU_FOCUS)
+        state = engine.telemetryState.value
+        assertEquals(0, state.realMeasuredThreadDutyPercent)
+        assertEquals(100, state.gpuLockedDutyPercent)
+        assertEquals("IDLE (GPU FOCUS)", state.cpuStatus.requestState)
+
+        // 3. Switch live to Combined Max: Both CPU and GPU run at 100%
+        engine.setWorkloadFocus(WorkloadFocus.COMBINED_MAX)
+        state = engine.telemetryState.value
+        assertEquals(100, state.realMeasuredThreadDutyPercent)
+        assertEquals(100, state.gpuLockedDutyPercent)
+
+        engine.stopPerformanceSession("Test cleanup")
+    }
 }

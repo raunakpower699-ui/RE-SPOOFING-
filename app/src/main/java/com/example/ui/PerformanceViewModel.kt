@@ -156,6 +156,16 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectWorkloadFocus(focus: WorkloadFocus) {
         engine.setWorkloadFocus(focus)
+        val st = engine.telemetryState.value
+        _uiBannerMessage.value = if (st.isSessionActive) {
+            when (focus) {
+                WorkloadFocus.CPU_FOCUS -> "⚡ CPU Multi-Core Active: CPU at ${st.realMeasuredThreadDutyPercent}%, GPU Idle (0%)."
+                WorkloadFocus.GPU_FOCUS -> "🎮 GPU Focused Active: GPU at ${st.gpuLockedDutyPercent}%, CPU Idle (0%)."
+                WorkloadFocus.COMBINED_MAX -> "🔥 Combined Max Active: CPU (${st.realMeasuredThreadDutyPercent}%) & GPU (${st.gpuLockedDutyPercent}%) both locked."
+            }
+        } else {
+            "${focus.title} selected — tap Start on Dashboard to engage."
+        }
     }
 
     fun startPerformanceMode(associatedGamePackage: String? = null, associatedGameName: String? = null) {

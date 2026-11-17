@@ -26,6 +26,8 @@ class ThermalMonitor(private val context: Context) {
     private var cachedGpuZoneFile: File? = null
     private var zonesScanned: Boolean = false
     private var statusListener: PowerManager.OnThermalStatusChangedListener? = null
+    private var lastHeadroomQueryMs: Long = 0L
+    private var cachedThermalLoad: Float? = null
 
     fun registerThermalStatusListener(onStatusChanged: (ThermalStatusLevel) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
@@ -68,13 +70,25 @@ class ThermalMonitor(private val context: Context) {
             ThermalStatusLevel.NONE
         }
 
+        // ADPF getThermalHeadroom(0) returns thermal load toward SEVERE throttling (0.0 = cool/unsupported, 1.0 = severe throttling).
+        // Per ADPF guidelines, ignore 0.0f or NaN (unsupported/emulator) and poll at most once every 10s.
         val headroomRatio = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && pm != null) {
             try {
-                val raw = pm.getThermalHeadroom(0)
-                if (raw.isNaN() || raw < 0f) {
-                    estimateHeadroomFromStatus(thermalLevel, batteryTempCelsius)
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastHeadroomQueryMs >= 10_000L || lastHeadroomQueryMs == 0L) {
+                    lastHeadroomQueryMs = nowMs
+                    val raw = pm.getThermalHeadroom(0)
+                    if (!raw.isNaN() && raw > 0.0f) {
+                        cachedThermalLoad = raw.coerceIn(0f, 1.5f)
+                    } else if (raw.isNaN() || raw == 0.0f) {
+                        cachedThermalLoad = null
+                    }
+                }
+                val validLoad = cachedThermalLoad
+                if (validLoad != null) {
+                    (1.0f - validLoad).coerceIn(0f, 1f)
                 } else {
-                    raw.coerceIn(0f, 1.5f)
+                    estimateHeadroomFromStatus(thermalLevel, batteryTempCelsius)
                 }
             } catch (_: Throwable) {
                 estimateHeadroomFromStatus(thermalLevel, batteryTempCelsius)

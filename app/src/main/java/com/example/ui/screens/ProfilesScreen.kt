@@ -97,15 +97,39 @@ fun ProfilesScreen(
         item {
             Spacer(modifier = Modifier.height(4.dp))
             Column {
-                Text(
-                    text = "INTELLIGENT WORKLOAD FOCUS",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "INTELLIGENT WORKLOAD FOCUS",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = CobaltDeep,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CobaltTurbo)
+                    ) {
+                        Text(
+                            text = if (state.isSessionActive) {
+                                "CPU ${state.realMeasuredThreadDutyPercent}% • GPU ${state.gpuLockedDutyPercent}%"
+                            } else {
+                                "STANDBY"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Select whether compute prioritization targets CPU, GPU, or Combined simultaneously.",
+                    text = "Select whether compute prioritization targets CPU only, GPU only, or Combined simultaneously.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -233,6 +257,7 @@ private fun WorkloadFocusCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onSelect() }
+            .testTag("focus_card_${focus.id}")
             .border(
                 1.5.dp,
                 if (isSelected) CobaltTurbo else CarbonBorder,
