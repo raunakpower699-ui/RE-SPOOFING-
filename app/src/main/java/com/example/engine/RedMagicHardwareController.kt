@@ -38,6 +38,12 @@ class RedMagicHardwareController(private val context: Context) {
     private var audioTrack: AudioTrack? = null
     @Volatile
     private var currentTargetHz: Int = 144
+    @Volatile
+    private var activeDutyPercent: Int = 100
+    @Volatile
+    private var activeKeepWarm: Boolean = true
+    @Volatile
+    private var activeExtreme: Boolean = true
 
     fun updateTargetRefreshRate(hz: Int) {
         currentTargetHz = hz.coerceIn(60, 165)
@@ -47,14 +53,28 @@ class RedMagicHardwareController(private val context: Context) {
         scope: CoroutineScope,
         isExtreme: Boolean,
         targetHz: Int = 144,
-        zeroContentionKeepWarm: Boolean = true
+        zeroContentionKeepWarm: Boolean = true,
+        dutyPercent: Int = 100
     ) {
         currentTargetHz = targetHz.coerceIn(60, 165)
-        if (isGpuRunning.getAndSet(true)) return
+        activeDutyPercent = dutyPercent.coerceIn(10, 100)
+        activeExtreme = isExtreme
+
+        if (isGpuRunning.get() && gpuJob?.isActive == true && activeKeepWarm == zeroContentionKeepWarm) {
+            return
+        }
+        if (isGpuRunning.get()) {
+            stopOpenGlGpuFloorLock()
+        }
+        activeKeepWarm = zeroContentionKeepWarm
+        isGpuRunning.set(true)
 
         gpuJob = scope.launch(Dispatchers.Default) {
             try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_LOWEST)
+                android.os.Process.setThreadPriority(
+                    if (zeroContentionKeepWarm) android.os.Process.THREAD_PRIORITY_LOWEST
+                    else android.os.Process.THREAD_PRIORITY_BACKGROUND
+                )
             } catch (_: Throwable) {
             }
 
@@ -87,7 +107,7 @@ class RedMagicHardwareController(private val context: Context) {
                 )
                 eglContext = EGL14.eglCreateContext(eglDisplay, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
-                val surfSize = if (zeroContentionKeepWarm) 16 else 128
+                val surfSize = if (zeroContentionKeepWarm) 32 else 128
                 val pbufferAttribs = intArrayOf(
                     EGL14.EGL_WIDTH, surfSize,
                     EGL14.EGL_HEIGHT, surfSize,
@@ -108,11 +128,13 @@ class RedMagicHardwareController(private val context: Context) {
 
                 val fragmentShaderCode = if (zeroContentionKeepWarm) {
                     """
-                    precision lowp float;
+                    precision mediump float;
                     uniform vec2 uResolution;
                     uniform float uTime;
                     void main() {
-                        gl_FragColor = vec4(0.01, 0.01, 0.01, 1.0);
+                        vec2 uv = gl_FragCoord.xy / uResolution.xy;
+                        float s = sin(uv.x * 6.28 + uTime) * cos(uv.y * 6.28 - uTime);
+                        gl_FragColor = vec4(0.02 + s * 0.01, 0.02, 0.03, 1.0);
                     }
                     """.trimIndent()
                 } else {
@@ -124,13 +146,13 @@ class RedMagicHardwareController(private val context: Context) {
                         vec2 st = gl_FragCoord.xy / uResolution.xy;
                         vec3 color = vec3(0.0);
                         float d = distance(st, vec2(0.5));
-                        for (int i = 0; i < 4; i++) {
+                        for (int i = 0; i < 6; i++) {
                             float fi = float(i) + 1.0;
                             color += vec3(
                                 sin(uTime * fi + d * 12.0),
                                 cos(uTime * fi - d * 10.0),
                                 sin(uTime * 0.5 * fi + st.x * 6.0)
-                            ) * 0.25;
+                            ) * 0.16;
                         }
                         gl_FragColor = vec4(color, 1.0);
                     }
@@ -156,6 +178,11 @@ class RedMagicHardwareController(private val context: Context) {
 
                 var frameCount = 0
                 while (isActive && isGpuRunning.get()) {
+                    val passes = if (zeroContentionKeepWarm) {
+                        1
+                    } else {
+                        ((activeDutyPercent + 24) / 25).coerceIn(1, 4)
+                    }
                     GLES20.glViewport(0, 0, surfSize, surfSize)
                     GLES20.glClearColor(0.05f, 0.05f, 0.05f, 1.0f)
                     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -165,26 +192,29 @@ class RedMagicHardwareController(private val context: Context) {
                     GLES20.glVertexAttribPointer(vPositionLoc, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
 
                     GLES20.glUniform2f(uResolutionLoc, surfSize.toFloat(), surfSize.toFloat())
-                    GLES20.glUniform1f(uTimeLoc, frameCount * 0.05f)
+                    for (pass in 0 until passes) {
+                        GLES20.glUniform1f(uTimeLoc, (frameCount + pass) * 0.05f)
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                    }
 
-                    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
                     if (zeroContentionKeepWarm) {
-                        // Non-blocking flush keeps GPU devfreq clock awake with ZERO glFinish() pipeline stall for PUBG!
+                        // Non-blocking flush at target Hz keeps GPU devfreq high without glFinish() stalls
                         GLES20.glFlush()
                     } else {
                         GLES20.glFinish()
                     }
 
                     frameCount++
+                    val hzPaceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(5L, 11L)
                     if (zeroContentionKeepWarm) {
-                        SystemClock.sleep(16L)
+                        SystemClock.sleep(hzPaceMs)
                     } else {
-                        val hzPaceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(5L, 16L)
-                        if (isExtreme) {
-                            SystemClock.sleep(hzPaceMs.coerceAtMost(6L))
-                        } else {
-                            SystemClock.sleep(hzPaceMs)
+                        val dutyRestMs = when {
+                            activeDutyPercent >= 95 -> if (activeExtreme) 1L else 2L
+                            activeDutyPercent >= 70 -> hzPaceMs.coerceAtMost(5L)
+                            else -> hzPaceMs
                         }
+                        SystemClock.sleep(dutyRestMs)
                     }
                 }
             } catch (_: Throwable) {

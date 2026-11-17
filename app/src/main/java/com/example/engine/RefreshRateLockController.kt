@@ -3,6 +3,8 @@ package com.example.engine
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
+import android.graphics.SurfaceTexture
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
@@ -12,9 +14,12 @@ import android.provider.Settings
 import android.view.Choreographer
 import android.view.Display
 import android.view.Gravity
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import android.widget.FrameLayout
 import com.example.model.RefreshRatePermissionStatus
 import com.example.model.RefreshRateTarget
 import kotlin.math.abs
@@ -23,7 +28,8 @@ import kotlin.math.roundToInt
 class RefreshRateLockController(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var overlayAnchorView: View? = null
+    private var overlayAnchorView: FrameLayout? = null
+    private var overlaySurface: Surface? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     @Volatile
     private var isOverlayAnchored: Boolean = false
@@ -33,6 +39,8 @@ class RefreshRateLockController(private val context: Context) {
     private var activeTarget: RefreshRateTarget = RefreshRateTarget.HZ_144
     @Volatile
     private var lastAppliedOverlayHz: Int = -1
+    @Volatile
+    private var pendingOverlayTargetHz: Float = 144f
 
     @Volatile
     var liveMeasuredFps: Int = 144
@@ -109,7 +117,8 @@ class RefreshRateLockController(private val context: Context) {
         val resolutionLabel: String,
         val maxHz: Int,
         val supportedHzList: List<Int>,
-        val bestModeIdByTargetHz: Map<Int, Int>
+        val bestModeIdByTargetHz: Map<Int, Int>,
+        val bestRefreshRateByTargetHz: Map<Int, Float> = emptyMap()
     )
 
     fun queryPanelDisplayInfo(): PanelDisplayInfo {
@@ -121,7 +130,8 @@ class RefreshRateLockController(private val context: Context) {
                     resolutionLabel = "1080 x 2400 (144Hz)",
                     maxHz = 144,
                     supportedHzList = listOf(60, 90, 120, 144),
-                    bestModeIdByTargetHz = emptyMap()
+                    bestModeIdByTargetHz = emptyMap(),
+                    bestRefreshRateByTargetHz = emptyMap()
                 )
             }
             val modes = display.supportedModes ?: emptyArray()
@@ -140,6 +150,7 @@ class RefreshRateLockController(private val context: Context) {
 
             // Match modes preferring native physical resolution first, then closest Hz >= target (or max available)
             val modeMap = mutableMapOf<Int, Int>()
+            val rateMap = mutableMapOf<Int, Float>()
             for (target in RefreshRateTarget.entries) {
                 val targetHz = target.hz.toFloat()
                 val sameResModes = modes.filter {
@@ -154,6 +165,7 @@ class RefreshRateLockController(private val context: Context) {
                 val chosen = exactOrHigher ?: fallbackHighest
                 if (chosen != null) {
                     modeMap[target.hz] = chosen.modeId
+                    rateMap[target.hz] = chosen.refreshRate
                 }
             }
 
@@ -161,14 +173,16 @@ class RefreshRateLockController(private val context: Context) {
                 resolutionLabel = "$width x $height (${maxHz}Hz Panel)",
                 maxHz = maxHz,
                 supportedHzList = distinctHz,
-                bestModeIdByTargetHz = modeMap
+                bestModeIdByTargetHz = modeMap,
+                bestRefreshRateByTargetHz = rateMap
             )
         } catch (_: Throwable) {
             PanelDisplayInfo(
                 resolutionLabel = "1080 x 2400 (144Hz)",
                 maxHz = 144,
                 supportedHzList = listOf(60, 90, 120, 144),
-                bestModeIdByTargetHz = emptyMap()
+                bestModeIdByTargetHz = emptyMap(),
+                bestRefreshRateByTargetHz = emptyMap()
             )
         }
     }
@@ -207,12 +221,20 @@ class RefreshRateLockController(private val context: Context) {
         if (window == null) return
         val panelInfo = queryPanelDisplayInfo()
         val modeId = panelInfo.bestModeIdByTargetHz[target.hz] ?: 0
+        val effectiveHz = panelInfo.bestRefreshRateByTargetHz[target.hz] ?: target.hz.toFloat()
         mainHandler.post {
             try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    try {
+                        window.isFrameRatePowerSavingsBalanced = !lockActive
+                        window.decorView.requestedFrameRate = if (lockActive) effectiveHz else 0f
+                    } catch (_: Throwable) {
+                    }
+                }
                 val lp = window.attributes
                 if (lockActive) {
                     @Suppress("DEPRECATION")
-                    lp.preferredRefreshRate = target.hz.toFloat()
+                    lp.preferredRefreshRate = effectiveHz
                     if (modeId != 0) {
                         lp.preferredDisplayModeId = modeId
                     }
@@ -231,8 +253,11 @@ class RefreshRateLockController(private val context: Context) {
 
     fun lockRefreshRateGlobally(target: RefreshRateTarget) {
         activeTarget = target
-        applySystemSettingsRefreshRate(target)
-        attachOrUpdateOverlayAnchor(target)
+        val panelInfo = queryPanelDisplayInfo()
+        val effectiveHz = panelInfo.bestRefreshRateByTargetHz[target.hz] ?: target.hz.toFloat()
+        pendingOverlayTargetHz = effectiveHz
+        applySystemSettingsRefreshRate(effectiveHz)
+        attachOrUpdateOverlayAnchor(target, panelInfo)
     }
 
     fun releaseGlobalRefreshRateLock() {
@@ -241,15 +266,15 @@ class RefreshRateLockController(private val context: Context) {
         detachOverlayAnchor()
     }
 
-    private fun applySystemSettingsRefreshRate(target: RefreshRateTarget) {
+    private fun applySystemSettingsRefreshRate(effectiveHz: Float) {
         try {
             if (!Settings.System.canWrite(context)) {
                 isSystemSettingsApplied = false
                 return
             }
             val resolver = context.contentResolver
-            val hzFloat = target.hz.toFloat()
-            val hzInt = target.hz
+            val hzFloat = effectiveHz
+            val hzInt = effectiveHz.roundToInt()
 
             // Only write keys if they drifted (avoids unnecessary ContentResolver churn during gaming)
             if (readFloatOrNull(resolver, "min_refresh_rate") != hzFloat) {
@@ -300,7 +325,7 @@ class RefreshRateLockController(private val context: Context) {
         }
     }
 
-    private fun attachOrUpdateOverlayAnchor(target: RefreshRateTarget) {
+    private fun attachOrUpdateOverlayAnchor(target: RefreshRateTarget, panelInfo: PanelDisplayInfo = queryPanelDisplayInfo()) {
         try {
             if (!Settings.canDrawOverlays(context)) {
                 isOverlayAnchored = false
@@ -311,8 +336,9 @@ class RefreshRateLockController(private val context: Context) {
             return
         }
 
-        val panelInfo = queryPanelDisplayInfo()
         val modeId = panelInfo.bestModeIdByTargetHz[target.hz] ?: 0
+        val effectiveHz = panelInfo.bestRefreshRateByTargetHz[target.hz] ?: target.hz.toFloat()
+        pendingOverlayTargetHz = effectiveHz
 
         mainHandler.post {
             try {
@@ -321,9 +347,16 @@ class RefreshRateLockController(private val context: Context) {
                 val existingView = overlayAnchorView
                 val existingParams = overlayParams
                 if (existingView != null && existingParams != null && existingView.isAttachedToWindow) {
+                    applySurfaceFrameRate(overlaySurface, effectiveHz)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                        try {
+                            existingView.requestedFrameRate = effectiveHz
+                        } catch (_: Throwable) {
+                        }
+                    }
                     if (lastAppliedOverlayHz != target.hz) {
                         @Suppress("DEPRECATION")
-                        existingParams.preferredRefreshRate = target.hz.toFloat()
+                        existingParams.preferredRefreshRate = effectiveHz
                         if (modeId != 0) {
                             existingParams.preferredDisplayModeId = modeId
                         }
@@ -334,34 +367,71 @@ class RefreshRateLockController(private val context: Context) {
                     return@post
                 }
 
-                // Zero-BufferQueue transparent 1x1 View: locks WindowManager refresh rate globally
-                // WITHOUT creating a hardware SurfaceView layer that would break HWC game composition!
-                val anchorView = View(context).apply {
-                    setBackgroundColor(Color.TRANSPARENT)
+                // Micro 2x2 anchor with imperceptible alpha=1/255 + TextureView Surface.setFrameRate():
+                // Ensures Android 15/16 SurfaceFlinger NEVER culls the vote layer and holds DisplayModeDirector at target Hz.
+                val anchorRoot = FrameLayout(context).apply {
+                    setBackgroundColor(Color.argb(1, 0, 0, 0))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                        try {
+                            requestedFrameRate = effectiveHz
+                        } catch (_: Throwable) {
+                        }
+                    }
                 }
 
+                val textureView = TextureView(context).apply {
+                    isOpaque = false
+                    alpha = 0.01f
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                            try {
+                                val surf = Surface(st)
+                                val canvas = surf.lockCanvas(null)
+                                canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                surf.unlockCanvasAndPost(canvas)
+                                overlaySurface = surf
+                                applySurfaceFrameRate(surf, pendingOverlayTargetHz)
+                            } catch (_: Throwable) {
+                            }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            try {
+                                overlaySurface?.release()
+                            } catch (_: Throwable) {
+                            }
+                            overlaySurface = null
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                    }
+                }
+                anchorRoot.addView(textureView, FrameLayout.LayoutParams(2, 2))
+
                 val params = WindowManager.LayoutParams(
-                    1,
-                    1,
+                    2,
+                    2,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSPARENT
+                    PixelFormat.TRANSLUCENT
                 ).apply {
                     gravity = Gravity.TOP or Gravity.START
                     x = 0
                     y = 0
                     @Suppress("DEPRECATION")
-                    preferredRefreshRate = target.hz.toFloat()
+                    preferredRefreshRate = effectiveHz
                     if (modeId != 0) {
                         preferredDisplayModeId = modeId
                     }
                 }
 
-                wm.addView(anchorView, params)
-                overlayAnchorView = anchorView
+                wm.addView(anchorRoot, params)
+                overlayAnchorView = anchorRoot
                 overlayParams = params
                 lastAppliedOverlayHz = target.hz
                 isOverlayAnchored = true
@@ -371,8 +441,34 @@ class RefreshRateLockController(private val context: Context) {
         }
     }
 
+    private fun applySurfaceFrameRate(surface: Surface?, targetHz: Float) {
+        if (surface == null || !surface.isValid) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                surface.setFrameRate(
+                    targetHz,
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                @Suppress("DEPRECATION")
+                surface.setFrameRate(
+                    targetHz,
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                )
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun detachOverlayAnchor() {
         mainHandler.post {
+            try {
+                overlaySurface?.release()
+            } catch (_: Throwable) {
+            } finally {
+                overlaySurface = null
+            }
             try {
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
                 val view = overlayAnchorView

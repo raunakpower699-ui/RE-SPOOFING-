@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -48,6 +49,9 @@ class FloatingFpsOverlayController(private val context: Context) {
 
     @Volatile
     private var currentTarget: RefreshRateTarget = RefreshRateTarget.HZ_144
+
+    @Volatile
+    private var effectiveTargetHz: Float = 144f
 
     @Volatile
     private var currentCpuTempCelsius: Float = 40f
@@ -94,7 +98,7 @@ class FloatingFpsOverlayController(private val context: Context) {
                 if (deltaMs in 1.0f..500.0f) {
                     liveFrameTimeMs = deltaMs
                     totalFramesInWindow++
-                    val targetMs = 1000f / currentTarget.hz.toFloat()
+                    val targetMs = 1000f / effectiveTargetHz.coerceAtLeast(60f)
                     if (deltaMs > targetMs * 1.45f) {
                         droppedCountInWindow++
                     }
@@ -150,9 +154,11 @@ class FloatingFpsOverlayController(private val context: Context) {
         target: RefreshRateTarget,
         cpuTempCelsius: Float,
         thermalThrottling: Boolean,
-        preferredModeId: Int = 0
+        preferredModeId: Int = 0,
+        matchedPanelHz: Float = target.hz.toFloat()
     ): Boolean {
         currentTarget = target
+        effectiveTargetHz = matchedPanelHz
         currentCpuTempCelsius = cpuTempCelsius
         isThermalThrottling = thermalThrottling
 
@@ -165,12 +171,13 @@ class FloatingFpsOverlayController(private val context: Context) {
             isOverlayShowing = false
             return false
         }
+        isOverlayShowing = true
 
         mainHandler.post {
             try {
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return@post
                 if (rootContainer != null && rootContainer?.isAttachedToWindow == true) {
-                    updateTargetRefreshRateInternal(wm, target, preferredModeId)
+                    updateTargetRefreshRateInternal(wm, target, preferredModeId, matchedPanelHz)
                     refreshOverlayViews()
                     isOverlayShowing = true
                     startMeasuringInternal()
@@ -178,6 +185,12 @@ class FloatingFpsOverlayController(private val context: Context) {
                 }
 
                 val view = buildHudView()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    try {
+                        view.requestedFrameRate = effectiveTargetHz
+                    } catch (_: Throwable) {
+                    }
+                }
                 val params = WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
@@ -191,7 +204,7 @@ class FloatingFpsOverlayController(private val context: Context) {
                     x = dp(14)
                     y = dp(46)
                     @Suppress("DEPRECATION")
-                    preferredRefreshRate = target.hz.toFloat()
+                    preferredRefreshRate = effectiveTargetHz
                     if (preferredModeId != 0) {
                         preferredDisplayModeId = preferredModeId
                     }
@@ -234,11 +247,16 @@ class FloatingFpsOverlayController(private val context: Context) {
         }
     }
 
-    fun updateTargetRefreshRate(target: RefreshRateTarget, preferredModeId: Int = 0) {
+    fun updateTargetRefreshRate(
+        target: RefreshRateTarget,
+        preferredModeId: Int = 0,
+        matchedPanelHz: Float = target.hz.toFloat()
+    ) {
         currentTarget = target
+        effectiveTargetHz = matchedPanelHz
         mainHandler.post {
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return@post
-            updateTargetRefreshRateInternal(wm, target, preferredModeId)
+            updateTargetRefreshRateInternal(wm, target, preferredModeId, matchedPanelHz)
             refreshOverlayViews()
         }
     }
@@ -254,14 +272,21 @@ class FloatingFpsOverlayController(private val context: Context) {
     private fun updateTargetRefreshRateInternal(
         wm: WindowManager,
         target: RefreshRateTarget,
-        preferredModeId: Int
+        preferredModeId: Int,
+        matchedPanelHz: Float
     ) {
         val view = rootContainer ?: return
         val params = layoutParams ?: return
         if (!view.isAttachedToWindow) return
-        if (params.preferredRefreshRate != target.hz.toFloat()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            try {
+                view.requestedFrameRate = matchedPanelHz
+            } catch (_: Throwable) {
+            }
+        }
+        if (params.preferredRefreshRate != matchedPanelHz) {
             @Suppress("DEPRECATION")
-            params.preferredRefreshRate = target.hz.toFloat()
+            params.preferredRefreshRate = matchedPanelHz
             if (preferredModeId != 0) {
                 params.preferredDisplayModeId = preferredModeId
             }
@@ -383,7 +408,7 @@ class FloatingFpsOverlayController(private val context: Context) {
 
     private fun refreshOverlayViews() {
         val fps = liveFps
-        val target = currentTarget.hz.coerceAtLeast(60)
+        val target = effectiveTargetHz.roundToInt().coerceAtLeast(60)
         val ratio = fps.toFloat() / target.toFloat()
 
         val accentColor = when {

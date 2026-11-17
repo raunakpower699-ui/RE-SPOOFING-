@@ -65,6 +65,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     private var governorLoopJob: Job? = null
     private var telemetryLoopJob: Job? = null
     private val workerJobs = mutableListOf<Job>()
+    private val workerThreads = mutableListOf<Thread>()
+    private val workerThreadsRunning = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private val measuredWorkerDutyPct = AtomicInteger(0)
     private val measuredMemoryBandwidthMbPerSec = AtomicInteger(0)
@@ -104,12 +106,15 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         _telemetryState.update { it.copy(floatingFpsOverlayEnabled = enabled) }
         val st = _telemetryState.value
         val shown = if (enabled && st.isSessionActive && !isRobolectricTest) {
-            val modeId = refreshController.queryPanelDisplayInfo().bestModeIdByTargetHz[st.selectedRefreshRate.hz] ?: 0
+            val panelInfo = refreshController.queryPanelDisplayInfo()
+            val modeId = panelInfo.bestModeIdByTargetHz[st.selectedRefreshRate.hz] ?: 0
+            val matchedHz = panelInfo.bestRefreshRateByTargetHz[st.selectedRefreshRate.hz] ?: st.selectedRefreshRate.hz.toFloat()
             floatingFpsOverlay.show(
                 target = st.selectedRefreshRate,
                 cpuTempCelsius = st.thermalStatus.cpuTempCelsius,
                 thermalThrottling = st.thermalStatus.isThrottling,
-                preferredModeId = modeId
+                preferredModeId = modeId,
+                matchedPanelHz = matchedHz
             )
         } else {
             floatingFpsOverlay.hide()
@@ -133,8 +138,16 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     fun setUniversalTier(tier: UniversalDeviceTier) {
         _telemetryState.update { it.copy(activeUniversalTier = tier) }
         appendLog("TIER: Universal Hardware Profile set to ${tier.title}")
-        if (_telemetryState.value.isSessionActive) {
-            startMultiClusterWorkerThreads(_telemetryState.value.selectedProfile, _telemetryState.value.selectedWorkloadFocus)
+        val st = _telemetryState.value
+        if (st.isSessionActive) {
+            val (cpuPct, _) = computeTargetDutyPercents(
+                isActive = true,
+                profile = st.selectedProfile,
+                focus = st.selectedWorkloadFocus,
+                cpuOverride = st.customCpuDutyOverride,
+                gpuOverride = st.customGpuDutyOverride
+            )
+            startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, cpuDutyPct = cpuPct)
         }
         refreshStaticAndDynamicTelemetry()
     }
@@ -159,7 +172,13 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     }
 
     fun setProfile(profile: PerformanceProfile) {
-        _telemetryState.update { it.copy(selectedProfile = profile) }
+        _telemetryState.update {
+            it.copy(
+                selectedProfile = profile,
+                customCpuDutyOverride = null,
+                customGpuDutyOverride = null
+            )
+        }
         if (_telemetryState.value.isSessionActive) {
             startPerformanceSession(profile = profile)
         } else {
@@ -168,6 +187,9 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     }
 
     fun setRefreshRateTarget(target: RefreshRateTarget) {
+        val panelInfo = refreshController.queryPanelDisplayInfo()
+        val modeId = panelInfo.bestModeIdByTargetHz[target.hz] ?: 0
+        val matchedHz = panelInfo.bestRefreshRateByTargetHz[target.hz] ?: target.hz.toFloat()
         gpuController.updateTargetRefreshRate(target.hz)
         _telemetryState.update { st ->
             st.copy(
@@ -181,8 +203,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         if (_telemetryState.value.isSessionActive) {
             refreshController.lockRefreshRateGlobally(target)
             if (!isRobolectricTest && _telemetryState.value.floatingFpsOverlayEnabled) {
-                val modeId = refreshController.queryPanelDisplayInfo().bestModeIdByTargetHz[target.hz] ?: 0
-                floatingFpsOverlay.updateTargetRefreshRate(target, modeId)
+                floatingFpsOverlay.updateTargetRefreshRate(target, modeId, matchedHz)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -229,24 +250,32 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
 
         val st = _telemetryState.value
         if (st.isSessionActive) {
-            val enableCpu = st.selectedWorkloadFocus.enableCpuHints
-            val enableGpu = st.selectedWorkloadFocus.enableGpuGameHints
+            val (cpuPct, gpuPct) = computeTargetDutyPercents(
+                isActive = true,
+                profile = st.selectedProfile,
+                focus = st.selectedWorkloadFocus,
+                cpuOverride = st.customCpuDutyOverride,
+                gpuOverride = st.customGpuDutyOverride
+            )
+            val enableCpu = cpuPct > 0
+            val enableGpu = gpuPct > 0
             if (inBackground) {
                 // User launched PUBG / game! Shed any blocking stress/storage contention,
                 // keep NON-BLOCKING GPU clock keep-warm active ONLY if GPU focus is enabled!
                 gpuController.stopOpenGlGpuFloorLock()
                 gpuController.stopUfsStorageKeepAlive()
                 gpuController.stopLowLatencyAudioDspLock()
-                if (enableGpu && st.selectedProfile != PerformanceProfile.SAVING_MODE) {
+                if (enableGpu) {
                     gpuController.startOpenGlGpuFloorLock(
                         scope = engineScope,
                         isExtreme = isExtremeOverdriveProfile(st.selectedProfile),
                         targetHz = st.selectedRefreshRate.hz,
-                        zeroContentionKeepWarm = true
+                        zeroContentionKeepWarm = true,
+                        dutyPercent = gpuPct
                     )
                 }
                 if (enableCpu) {
-                    startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = true)
+                    startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = true, cpuDutyPct = cpuPct)
                 } else {
                     stopMultiClusterWorkerThreads()
                     closeHintSession()
@@ -257,7 +286,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                         gameCpuHeadroomPercent = 99
                     )
                 }
-                appendLog("GAME HANDOFF: ${st.selectedWorkloadFocus.title} active in background with 99% game headroom.")
+                appendLog("GAME HANDOFF: ${st.selectedWorkloadFocus.title} active in background (CPU=$cpuPct%, GPU=$gpuPct%, 99% game headroom).")
             } else {
                 val useZeroContention = st.engineWorkloadMode == EngineWorkloadMode.GAME_ANTI_DROP || st.thermalStatus.isThrottling
                 gpuController.stopOpenGlGpuFloorLock()
@@ -267,20 +296,22 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                             scope = engineScope,
                             isExtreme = isExtremeOverdriveProfile(st.selectedProfile),
                             targetHz = st.selectedRefreshRate.hz,
-                            zeroContentionKeepWarm = false
+                            zeroContentionKeepWarm = false,
+                            dutyPercent = gpuPct
                         )
                         if (st.storageIoBoostEnabled) gpuController.startUfsStorageKeepAlive(engineScope)
-                    } else if (st.selectedProfile != PerformanceProfile.SAVING_MODE) {
+                    } else {
                         gpuController.startOpenGlGpuFloorLock(
                             scope = engineScope,
                             isExtreme = isExtremeOverdriveProfile(st.selectedProfile),
                             targetHz = st.selectedRefreshRate.hz,
-                            zeroContentionKeepWarm = true
+                            zeroContentionKeepWarm = true,
+                            dutyPercent = gpuPct
                         )
                     }
                 }
                 if (enableCpu) {
-                    startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = useZeroContention)
+                    startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = useZeroContention, cpuDutyPct = cpuPct)
                 } else {
                     stopMultiClusterWorkerThreads()
                     closeHintSession()
@@ -297,7 +328,13 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     }
 
     fun setWorkloadFocus(focus: WorkloadFocus) {
-        _telemetryState.update { it.copy(selectedWorkloadFocus = focus) }
+        _telemetryState.update {
+            it.copy(
+                selectedWorkloadFocus = focus,
+                customCpuDutyOverride = null,
+                customGpuDutyOverride = null
+            )
+        }
         appendLog("FOCUS: Switched workload focus to ${focus.title} (CPU=${focus.enableCpuHints}, GPU=${focus.enableGpuGameHints})")
         if (_telemetryState.value.isSessionActive) {
             startPerformanceSession(
@@ -307,6 +344,88 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         } else {
             refreshStaticAndDynamicTelemetry()
         }
+    }
+
+    fun setCpuDutyOverride(percent: Int) {
+        val clamped = percent.coerceIn(0, 100)
+        val cur = _telemetryState.value
+        val curGpu = cur.customGpuDutyOverride ?: if (cur.selectedWorkloadFocus.enableGpuGameHints) {
+            when (cur.selectedProfile) {
+                PerformanceProfile.DIABLO_MODE -> 100
+                PerformanceProfile.BALANCE_MODE -> 70
+                PerformanceProfile.SAVING_MODE -> 25
+            }
+        } else 0
+        val derivedFocus = when {
+            clamped > 0 && curGpu == 0 -> WorkloadFocus.CPU_FOCUS
+            clamped == 0 && curGpu > 0 -> WorkloadFocus.GPU_FOCUS
+            else -> WorkloadFocus.COMBINED_MAX
+        }
+        _telemetryState.update {
+            it.copy(
+                customCpuDutyOverride = clamped,
+                selectedWorkloadFocus = derivedFocus
+            )
+        }
+        appendLog("CPU CONTROL: Set CPU power target to $clamped% (GPU=$curGpu%).")
+        if (_telemetryState.value.isSessionActive) {
+            startPerformanceSession(
+                profile = _telemetryState.value.selectedProfile,
+                workloadFocus = derivedFocus
+            )
+        } else {
+            refreshStaticAndDynamicTelemetry()
+        }
+    }
+
+    fun setGpuDutyOverride(percent: Int) {
+        val clamped = percent.coerceIn(0, 100)
+        val cur = _telemetryState.value
+        val curCpu = cur.customCpuDutyOverride ?: if (cur.selectedWorkloadFocus.enableCpuHints) {
+            when (cur.selectedProfile) {
+                PerformanceProfile.DIABLO_MODE -> 100
+                PerformanceProfile.BALANCE_MODE -> 70
+                PerformanceProfile.SAVING_MODE -> 25
+            }
+        } else 0
+        val derivedFocus = when {
+            curCpu > 0 && clamped == 0 -> WorkloadFocus.CPU_FOCUS
+            curCpu == 0 && clamped > 0 -> WorkloadFocus.GPU_FOCUS
+            else -> WorkloadFocus.COMBINED_MAX
+        }
+        _telemetryState.update {
+            it.copy(
+                customGpuDutyOverride = clamped,
+                selectedWorkloadFocus = derivedFocus
+            )
+        }
+        appendLog("GPU CONTROL: Set GPU power target to $clamped% (CPU=$curCpu%).")
+        if (_telemetryState.value.isSessionActive) {
+            startPerformanceSession(
+                profile = _telemetryState.value.selectedProfile,
+                workloadFocus = derivedFocus
+            )
+        } else {
+            refreshStaticAndDynamicTelemetry()
+        }
+    }
+
+    private fun computeTargetDutyPercents(
+        isActive: Boolean,
+        profile: PerformanceProfile,
+        focus: WorkloadFocus,
+        cpuOverride: Int?,
+        gpuOverride: Int?
+    ): Pair<Int, Int> {
+        if (!isActive) return 0 to 0
+        val basePct = when (profile) {
+            PerformanceProfile.DIABLO_MODE -> 100
+            PerformanceProfile.BALANCE_MODE -> 70
+            PerformanceProfile.SAVING_MODE -> 25
+        }
+        val cpu = cpuOverride?.coerceIn(0, 100) ?: if (focus.enableCpuHints) basePct else 0
+        val gpu = gpuOverride?.coerceIn(0, 100) ?: if (focus.enableGpuGameHints) basePct else 0
+        return cpu to gpu
     }
 
     fun startPerformanceSession(
@@ -333,12 +452,6 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         val resolvedName = associatedGameName ?: _telemetryState.value.activeGameName ?: "120+ FPS Anti-Drop Pipeline"
         val now = System.currentTimeMillis()
 
-        val sessionPowerPct = when (profile) {
-            PerformanceProfile.DIABLO_MODE -> 100
-            PerformanceProfile.BALANCE_MODE -> 70
-            PerformanceProfile.SAVING_MODE -> 25
-        }
-
         // 1. Pin refresh rate globally without BufferQueue HWC penalty
         refreshController.lockRefreshRateGlobally(targetRefresh)
         refreshController.resetDroppedFrames()
@@ -346,12 +459,15 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             refreshController.startFrameMonitor()
         }
         if (_telemetryState.value.floatingFpsOverlayEnabled && !isRobolectricTest) {
-            val modeId = refreshController.queryPanelDisplayInfo().bestModeIdByTargetHz[targetRefresh.hz] ?: 0
+            val panelInfo = refreshController.queryPanelDisplayInfo()
+            val modeId = panelInfo.bestModeIdByTargetHz[targetRefresh.hz] ?: 0
+            val matchedHz = panelInfo.bestRefreshRateByTargetHz[targetRefresh.hz] ?: targetRefresh.hz.toFloat()
             floatingFpsOverlay.show(
                 target = targetRefresh,
                 cpuTempCelsius = thermalNow.cpuTempCelsius,
                 thermalThrottling = thermalNow.isThrottling,
-                preferredModeId = modeId
+                preferredModeId = modeId,
+                matchedPanelHz = matchedHz
             )
         } else {
             floatingFpsOverlay.hide()
@@ -365,15 +481,21 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             }
         }
 
-        // 3. Start either CPU-only, GPU-only, or Combined CPU+GPU hardware locks based on selected WorkloadFocus
-        val enableCpu = workloadFocus.enableCpuHints
-        val enableGpu = workloadFocus.enableGpuGameHints
-        val cpuPowerPct = if (enableCpu) sessionPowerPct else 0
-        val gpuPowerPct = if (enableGpu) sessionPowerPct else 0
+        // 3. Start CPU-only, GPU-only, or independent CPU%/GPU% hardware locks
+        val curState = _telemetryState.value
+        val (cpuPowerPct, gpuPowerPct) = computeTargetDutyPercents(
+            isActive = true,
+            profile = profile,
+            focus = workloadFocus,
+            cpuOverride = curState.customCpuDutyOverride,
+            gpuOverride = curState.customGpuDutyOverride
+        )
+        val enableCpu = cpuPowerPct > 0
+        val enableGpu = gpuPowerPct > 0
         val overallPowerPct = maxOf(cpuPowerPct, gpuPowerPct)
 
         if (enableCpu) {
-            startMultiClusterWorkerThreads(profile, workloadFocus, zeroContention = zeroContention)
+            startMultiClusterWorkerThreads(profile, workloadFocus, zeroContention = zeroContention, cpuDutyPct = cpuPowerPct)
         } else {
             stopMultiClusterWorkerThreads()
             closeHintSession()
@@ -383,12 +505,13 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             gpuController.stopOpenGlGpuFloorLock()
             gpuController.stopUfsStorageKeepAlive()
             gpuController.stopLowLatencyAudioDspLock()
-            if (enableGpu && profile != PerformanceProfile.SAVING_MODE) {
+            if (enableGpu) {
                 gpuController.startOpenGlGpuFloorLock(
                     scope = engineScope,
                     isExtreme = isExtreme,
                     targetHz = targetRefresh.hz,
-                    zeroContentionKeepWarm = true
+                    zeroContentionKeepWarm = true,
+                    dutyPercent = gpuPowerPct
                 )
             }
             if (_telemetryState.value.touchSensorBoostEnabled) {
@@ -401,7 +524,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                     scope = engineScope,
                     isExtreme = isExtreme,
                     targetHz = targetRefresh.hz,
-                    zeroContentionKeepWarm = false
+                    zeroContentionKeepWarm = false,
+                    dutyPercent = gpuPowerPct
                 )
             }
             if (_telemetryState.value.lowLatencyAudioDspLockEnabled) {
@@ -442,9 +566,9 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 gpuStabilityHistory = List(24) { gpuPowerPct },
                 sessionStartEpochMs = if (it.isSessionActive && it.sessionStartEpochMs > 0L) it.sessionStartEpochMs else now,
                 sessionElapsedSeconds = if (it.isSessionActive) it.sessionElapsedSeconds else 0L,
-                gpuFlopOverdriveGflops = if (!enableGpu) 0 else if (isExtreme) 2150 else 1480,
-                memoryBandwidthMbPerSec = if (!enableCpu) 0 else if (isExtreme) 17200 else 11800,
-                crc32AluOpsPerSecMillions = if (!enableCpu) 0 else if (isExtreme) 980 else 740,
+                gpuFlopOverdriveGflops = if (!enableGpu) 0 else ((2150 * gpuPowerPct) / 100).coerceAtLeast(350),
+                memoryBandwidthMbPerSec = if (!enableCpu) 0 else ((17200 * cpuPowerPct) / 100).coerceAtLeast(2800),
+                crc32AluOpsPerSecMillions = if (!enableCpu) 0 else ((980 * cpuPowerPct) / 100).coerceAtLeast(180),
                 audioFastPathActive = !zeroContention && it.lowLatencyAudioDspLockEnabled,
                 sensorSamplingHz = targetRefresh.hz,
                 storageThroughputMbPerSec = 1920,
@@ -456,8 +580,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         refreshStaticAndDynamicTelemetry()
         startMonitoringLoops()
 
-        val modeMsg = if (zeroContention) "Zero-Contention Game Anti-Drop" else "Benchmark Stress"
-        appendLog("START: ${profile.title} • ${workloadFocus.title} • ${targetRefresh.label} ($modeMsg).")
+        val modeMsg = if (zeroContention) "Zero-Contention Game Anti-Drop" else "Unclamped Max Lock"
+        appendLog("START: ${profile.title} • CPU $cpuPowerPct% / GPU $gpuPowerPct% • ${targetRefresh.label} ($modeMsg).")
         return true
     }
 
@@ -532,57 +656,93 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
     private fun startMultiClusterWorkerThreads(
         profile: PerformanceProfile,
         focus: WorkloadFocus,
-        zeroContention: Boolean = true
-    ) {
-        stopMultiClusterWorkerThreads()
-        if (!focus.enableCpuHints) return
-
-        val targetDutyPct = when (profile) {
+        zeroContention: Boolean = true,
+        cpuDutyPct: Int = when (profile) {
             PerformanceProfile.DIABLO_MODE -> 100
             PerformanceProfile.BALANCE_MODE -> 70
             PerformanceProfile.SAVING_MODE -> 25
         }
+    ) {
+        stopMultiClusterWorkerThreads()
+        if (cpuDutyPct <= 0) return
+
+        val targetDutyPct = cpuDutyPct.coerceIn(1, 100)
 
         if (zeroContention) {
-            // REAL GAME ANTI-DROP SCHEDULER KEEP-ALIVE + LIVE ADPF HINT SESSION:
-            // Uses 1 lowest-priority thread bound directly to ADPF PerformanceHintManager.Session
-            // so Android 16 / OriginOS WALT scheduler boosts CPU OPP to MAX while leaving 99% CPU time for PUBG!
-            val keepAliveJob = engineScope.launch(Dispatchers.Default) {
-                try {
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST)
-                } catch (_: Throwable) {
-                }
-                val workerTid = Process.myTid()
-                applyPerformanceHintSession(profile, _telemetryState.value.selectedRefreshRate, intArrayOf(workerTid))
+            // REAL GAME ANTI-DROP WALT KEEP-ALIVE + PINNED-THREAD ADPF HINT SESSION:
+            // Spawns 2-4 dedicated lowest-priority native threads bound together in ADPF PerformanceHintManager.Session
+            // so TIDs never hop across coroutine worker pools, pulsing ~350us every 6ms (WALT 4-8ms window)
+            // while leaving 94-98% CPU headroom free for games!
+            val clusterThreads = if (targetDutyPct >= 75) 4 else 2
+            val collectedTids = mutableListOf<Int>()
+            val tidLock = Any()
+            val runningFlag = java.util.concurrent.atomic.AtomicBoolean(true)
+            workerThreadsRunning.set(true)
 
-                val crc = CRC32()
-                val tinyBuf = ByteArray(1024) { (it and 0xFF).toByte() }
-                var cycle = 0
-                while (isActive) {
-                    val pulseNs = if (profile == PerformanceProfile.SAVING_MODE) 120_000L else 300_000L
-                    val startNs = SystemClock.elapsedRealtimeNanos()
-                    while (SystemClock.elapsedRealtimeNanos() - startNs < pulseNs) {
-                        crc.update(tinyBuf)
-                    }
-                    cycle++
-                    if (cycle % 10 == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val pulseNs = when {
+                targetDutyPct >= 95 -> 380_000L
+                targetDutyPct >= 70 -> 260_000L
+                else -> 140_000L
+            }
+
+            synchronized(workerThreads) {
+                for (idx in 0 until clusterThreads) {
+                    val thread = Thread({
                         try {
-                            val targetNs = if (profile == PerformanceProfile.DIABLO_MODE) {
-                                1_000_000L
-                            } else {
-                                _telemetryState.value.selectedRefreshRate.frameDurationNs
-                            }
-                            activeHintSession?.reportActualWorkDuration((targetNs * 1.25).toLong())
+                            Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST)
                         } catch (_: Throwable) {
                         }
+                        val workerTid = Process.myTid()
+                        var readyTids: IntArray? = null
+                        synchronized(tidLock) {
+                            collectedTids.add(workerTid)
+                            if (collectedTids.size == clusterThreads) {
+                                readyTids = collectedTids.distinct().toIntArray()
+                            }
+                        }
+                        if (readyTids != null) {
+                            applyPerformanceHintSession(profile, _telemetryState.value.selectedRefreshRate, readyTids!!)
+                        }
+
+                        val crc = CRC32()
+                        val tinyBuf = ByteArray(1024) { (it and 0xFF).toByte() }
+                        var cycle = 0
+                        while (runningFlag.get() && workerThreadsRunning.get() && !Thread.currentThread().isInterrupted) {
+                            val startNs = SystemClock.elapsedRealtimeNanos()
+                            while (SystemClock.elapsedRealtimeNanos() - startNs < pulseNs) {
+                                crc.update(tinyBuf)
+                            }
+                            cycle++
+                            if (idx == 0 && cycle % 10 == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                try {
+                                    val st = _telemetryState.value
+                                    val targetNs = if (st.selectedProfile == PerformanceProfile.DIABLO_MODE || targetDutyPct >= 95) {
+                                        1_000_000L
+                                    } else {
+                                        st.selectedRefreshRate.frameDurationNs
+                                    }
+                                    val boostMultiplier = if (targetDutyPct >= 95) 1.40 else if (targetDutyPct >= 70) 1.25 else 1.05
+                                    activeHintSession?.reportActualWorkDuration((targetNs * boostMultiplier).toLong())
+                                } catch (_: Throwable) {
+                                }
+                            }
+                            val restMs = (1000L / _telemetryState.value.selectedRefreshRate.hz.coerceIn(60, 165)).coerceIn(5L, 10L)
+                            try {
+                                SystemClock.sleep(restMs)
+                            } catch (_: Throwable) {
+                                break
+                            }
+                        }
+                    }, "RE-AdpfCluster-$idx").apply {
+                        isDaemon = true
+                        start()
                     }
-                    delay(20L)
+                    workerThreads.add(thread)
                 }
             }
-            workerJobs.add(keepAliveJob)
             measuredWorkerDutyPct.set(targetDutyPct)
-            measuredMemoryBandwidthMbPerSec.set(if (profile == PerformanceProfile.DIABLO_MODE) 17200 else 11800)
-            measuredCrc32AluMillions.set(if (profile == PerformanceProfile.DIABLO_MODE) 980 else 740)
+            measuredMemoryBandwidthMbPerSec.set(((17200 * targetDutyPct) / 100).coerceAtLeast(2800))
+            measuredCrc32AluMillions.set(((980 * targetDutyPct) / 100).coerceAtLeast(180))
             return
         }
 
@@ -627,11 +787,21 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             workerJobs.add(job)
         }
         measuredWorkerDutyPct.set(targetDutyPct)
-        measuredMemoryBandwidthMbPerSec.set(if (profile == PerformanceProfile.DIABLO_MODE) 17200 else 11800)
-        measuredCrc32AluMillions.set(if (profile == PerformanceProfile.DIABLO_MODE) 980 else 740)
+        measuredMemoryBandwidthMbPerSec.set(((17200 * targetDutyPct) / 100).coerceAtLeast(2800))
+        measuredCrc32AluMillions.set(((980 * targetDutyPct) / 100).coerceAtLeast(180))
     }
 
     private fun stopMultiClusterWorkerThreads() {
+        workerThreadsRunning.set(false)
+        synchronized(workerThreads) {
+            workerThreads.forEach {
+                try {
+                    it.interrupt()
+                } catch (_: Throwable) {
+                }
+            }
+            workerThreads.clear()
+        }
         workerJobs.forEach { it.cancel() }
         workerJobs.clear()
         measuredWorkerDutyPct.set(0)
@@ -745,10 +915,17 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                         cur.copy(sessionElapsedSeconds = cur.sessionElapsedSeconds + 1)
                     }
                     // Keep Android 16 / OriginOS 6 & 7 ADPF scheduler boosted continuously when CPU hints enabled
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && st.selectedWorkloadFocus.enableCpuHints) {
+                    val (liveCpuPct, liveGpuPct) = computeTargetDutyPercents(
+                        isActive = true,
+                        profile = st.selectedProfile,
+                        focus = st.selectedWorkloadFocus,
+                        cpuOverride = st.customCpuDutyOverride,
+                        gpuOverride = st.customGpuDutyOverride
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && liveCpuPct > 0) {
                         try {
-                            val targetNs = if (st.selectedProfile == PerformanceProfile.DIABLO_MODE) 1_000_000L else st.selectedRefreshRate.frameDurationNs
-                            val reportNs = (targetNs * 1.15).toLong()
+                            val targetNs = if (st.selectedProfile == PerformanceProfile.DIABLO_MODE || liveCpuPct >= 95) 1_000_000L else st.selectedRefreshRate.frameDurationNs
+                            val reportNs = (targetNs * 1.25).toLong()
                             activeHintSession?.reportActualWorkDuration(reportNs)
                         } catch (_: Throwable) {
                         }
@@ -759,16 +936,17 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                         gpuController.stopOpenGlGpuFloorLock()
                         gpuController.stopUfsStorageKeepAlive()
                         gpuController.stopLowLatencyAudioDspLock()
-                        if (st.selectedWorkloadFocus.enableGpuGameHints && st.selectedProfile != PerformanceProfile.SAVING_MODE) {
+                        if (liveGpuPct > 0) {
                             gpuController.startOpenGlGpuFloorLock(
                                 scope = engineScope,
                                 isExtreme = isExtremeOverdriveProfile(st.selectedProfile),
                                 targetHz = st.selectedRefreshRate.hz,
-                                zeroContentionKeepWarm = true
+                                zeroContentionKeepWarm = true,
+                                dutyPercent = liveGpuPct
                             )
                         }
-                        if (st.selectedWorkloadFocus.enableCpuHints) {
-                            startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = true)
+                        if (liveCpuPct > 0) {
+                            startMultiClusterWorkerThreads(st.selectedProfile, st.selectedWorkloadFocus, zeroContention = true, cpuDutyPct = liveCpuPct)
                         } else {
                             stopMultiClusterWorkerThreads()
                             closeHintSession()
@@ -808,28 +986,24 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         val battery = readBatteryStatus()
         val thermal = readThermalStatus(battery.temperatureCelsius)
         val permissions = refreshController.checkPermissionStatus()
-        val isActive = _telemetryState.value.isSessionActive
-        val profile = _telemetryState.value.selectedProfile
-        val focus = _telemetryState.value.selectedWorkloadFocus
-        val selectedHz = _telemetryState.value.selectedRefreshRate
+        val cur = _telemetryState.value
+        val isActive = cur.isSessionActive
+        val profile = cur.selectedProfile
+        val focus = cur.selectedWorkloadFocus
+        val selectedHz = cur.selectedRefreshRate
 
-        // Strictly immune to battery percentage (even at 1% battery!) and respects CPU/GPU WorkloadFocus
-        val baseDutyPct = if (isActive) {
-            when (profile) {
-                PerformanceProfile.DIABLO_MODE -> 100
-                PerformanceProfile.BALANCE_MODE -> 70
-                PerformanceProfile.SAVING_MODE -> 25
-            }
-        } else {
-            0
-        }
-
-        val cpuDutyPct = if (isActive && focus.enableCpuHints) baseDutyPct else 0
-        val gpuDutyPct = if (isActive && focus.enableGpuGameHints) baseDutyPct else 0
+        // Strictly immune to battery percentage (even at 1% battery!) and respects independent CPU/GPU overrides
+        val (cpuDutyPct, gpuDutyPct) = computeTargetDutyPercents(
+            isActive = isActive,
+            profile = profile,
+            focus = focus,
+            cpuOverride = cur.customCpuDutyOverride,
+            gpuOverride = cur.customGpuDutyOverride
+        )
         val overallPowerPct = if (isActive) maxOf(cpuDutyPct, gpuDutyPct) else 0
         val lockedHz = if (isActive) selectedHz.hz else 0
 
-        val cpu = buildCpuStatus(isActive, profile, focus, compatibility, thermal, cpuDutyPct)
+        val cpu = buildCpuStatus(isActive, profile, focus, compatibility, thermal, cpuDutyPct, gpuDutyPct)
         val gpu = buildGpuStatus(isActive, profile, focus, compatibility, thermal, gpuDutyPct)
 
         if (thermal.isThrottling && !lastAlertWasThrottling) {
@@ -925,7 +1099,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         focus: WorkloadFocus,
         compatibility: DeviceCompatibilityReport,
         thermal: ThermalStatusInfo,
-        lockedPowerPct: Int
+        lockedPowerPct: Int,
+        gpuDutyPct: Int
     ): CpuStatusInfo {
         if (!compatibility.isVivoOrIqoo) {
             return CpuStatusInfo(
@@ -943,7 +1118,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 statusDetail = "Ready to engage ${profile.title}"
             )
         }
-        if (!focus.enableCpuHints) {
+        if (lockedPowerPct <= 0) {
             return CpuStatusInfo(
                 requestState = "IDLE (GPU FOCUS)",
                 hintSessionActive = false,
@@ -953,8 +1128,8 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
         }
         return CpuStatusInfo(
             requestState = when {
-                profile == PerformanceProfile.DIABLO_MODE -> "ACTIVE (DIABLO OVERDRIVE)"
-                !focus.enableGpuGameHints -> "ACTIVE (CPU-ONLY MAX)"
+                lockedPowerPct >= 95 -> "ACTIVE (DIABLO OVERDRIVE)"
+                gpuDutyPct == 0 -> "ACTIVE (CPU-ONLY MAX)"
                 else -> "ACTIVE"
             },
             hintSessionActive = activeHintSession != null,
@@ -986,7 +1161,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
                 statusDetail = "GPU governor at system idle"
             )
         }
-        if (!focus.enableGpuGameHints) {
+        if (gpuDutyPct <= 0) {
             return GpuStatusInfo(
                 requestState = "IDLE (CPU FOCUS)",
                 gpuLockedDutyPercent = 0,
@@ -994,7 +1169,7 @@ class AndroidPerformanceEngine private constructor(private val appContext: Conte
             )
         }
         return GpuStatusInfo(
-            requestState = if (profile == PerformanceProfile.DIABLO_MODE) "ACTIVE (100% UNLIMITED FPS MODE)" else "ACTIVE ($gpuDutyPct% LOCK)",
+            requestState = if (gpuDutyPct >= 95) "ACTIVE (100% UNLIMITED FPS MODE)" else "ACTIVE ($gpuDutyPct% LOCK)",
             gpuLockedDutyPercent = gpuDutyPct,
             statusDetail = "eglSwapInterval(0) (${focus.title}) • GPU Duty: $gpuDutyPct%"
         )

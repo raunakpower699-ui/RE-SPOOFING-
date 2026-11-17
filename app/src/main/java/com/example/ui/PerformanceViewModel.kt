@@ -88,10 +88,18 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        var hasHandledAutoStart = false
         viewModelScope.launch {
             repository.userPreferences.collect { prefs ->
                 if (engine.telemetryState.value.floatingFpsOverlayEnabled != prefs.floatingFpsOverlayEnabled) {
                     engine.setFloatingFpsOverlayEnabled(prefs.floatingFpsOverlayEnabled)
+                }
+                if (!hasHandledAutoStart) {
+                    hasHandledAutoStart = true
+                    if (prefs.autoStartMaxPowerOnLaunch && !engine.telemetryState.value.isSessionActive) {
+                        engine.setProfile(PerformanceProfile.DIABLO_MODE)
+                        startPerformanceMode()
+                    }
                 }
             }
         }
@@ -164,7 +172,27 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
                 WorkloadFocus.COMBINED_MAX -> "🔥 Combined Max Active: CPU (${st.realMeasuredThreadDutyPercent}%) & GPU (${st.gpuLockedDutyPercent}%) both locked."
             }
         } else {
-            "${focus.title} selected — tap Start on Dashboard to engage."
+            "${focus.title} selected — tap Start to engage."
+        }
+    }
+
+    fun selectCpuPowerTarget(percent: Int) {
+        engine.setCpuDutyOverride(percent)
+        val st = engine.telemetryState.value
+        _uiBannerMessage.value = if (st.isSessionActive) {
+            "⚙️ CPU Target: ${st.realMeasuredThreadDutyPercent}% • GPU: ${st.gpuLockedDutyPercent}% (${st.selectedRefreshRate.label})"
+        } else {
+            "⚙️ CPU Target set to $percent% — tap Start to engage."
+        }
+    }
+
+    fun selectGpuPowerTarget(percent: Int) {
+        engine.setGpuDutyOverride(percent)
+        val st = engine.telemetryState.value
+        _uiBannerMessage.value = if (st.isSessionActive) {
+            "🎮 GPU Target: ${st.gpuLockedDutyPercent}% • CPU: ${st.realMeasuredThreadDutyPercent}% (${st.selectedRefreshRate.label})"
+        } else {
+            "🎮 GPU Target set to $percent% — tap Start to engage."
         }
     }
 

@@ -171,7 +171,7 @@ jobs:
             --latest
 
       - name: Report APK download result
-        if: always()
+        if: always() && steps.prepare_asset.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

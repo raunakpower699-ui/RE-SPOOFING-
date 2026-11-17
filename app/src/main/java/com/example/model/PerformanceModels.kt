@@ -363,6 +363,8 @@ data class PerformanceTelemetryState(
     val lockedPowerPercent: Int = 0,
     val gpuLockedDutyPercent: Int = 0,
     val realMeasuredThreadDutyPercent: Int = 0,
+    val customCpuDutyOverride: Int? = null,
+    val customGpuDutyOverride: Int? = null,
     val powerStabilityHistory: List<Int> = List(24) { 0 },
     val gpuStabilityHistory: List<Int> = List(24) { 0 },
     val sessionStartEpochMs: Long = 0L,

@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
-import com.example.R
 import com.example.engine.AndroidPerformanceEngine
 
 class PerformanceForegroundService : Service() {
@@ -21,7 +20,7 @@ class PerformanceForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        ensureNotificationChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -40,6 +39,7 @@ class PerformanceForegroundService : Service() {
         }
 
         val notification = buildPerformanceNotification(
+            context = this,
             profileTitle = state.selectedProfile.title,
             powerPct = if (state.isSessionActive) state.lockedPowerPercent else 100,
             lockedHz = state.selectedRefreshRate.hz,
@@ -60,102 +60,119 @@ class PerformanceForegroundService : Service() {
         return START_STICKY
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-    }
-
-    private fun buildPerformanceNotification(
-        profileTitle: String,
-        powerPct: Int,
-        lockedHz: Int,
-        cpuTemp: Float,
-        gpuTemp: Float,
-        isThrottling: Boolean
-    ): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val openPendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val stopIntent = Intent(this, PerformanceForegroundService::class.java).apply {
-            action = ACTION_STOP_PERFORMANCE
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val title = if (isThrottling) {
-            "⚠️ THERMAL THROTTLE ALERT • CPU ${cpuTemp}°C / GPU ${gpuTemp}°C"
-        } else {
-            "Raunak Exploits • $profileTitle ($powerPct% • ${lockedHz}Hz)"
-        }
-        val body = if (isThrottling) {
-            "SoC heat is causing FPS drops • Cool down device (Zero-Contention Active)"
-        } else {
-            "${lockedHz}Hz Pinned • CPU ${cpuTemp}°C • GPU ${gpuTemp}°C • Game Anti-Drop ON"
-        }
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setOngoing(true)
-            .setContentIntent(openPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Lock", stopPendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Performance Engine Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps CPU/GPU clock floors locked in background for games and benchmarks."
-                setShowBadge(false)
-            }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.createNotificationChannel(channel)
-        }
-    }
-
     companion object {
         const val CHANNEL_ID = "channel_performance_engine"
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP_PERFORMANCE = "com.example.service.ACTION_STOP_PERFORMANCE"
 
-        fun startService(context: Context) {
-            val intent = Intent(context, PerformanceForegroundService::class.java)
+        fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+                if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        "Performance Engine Service",
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = "Keeps CPU/GPU clock floors locked in background for games and benchmarks."
+                        setShowBadge(false)
+                    }
+                    nm.createNotificationChannel(channel)
+                }
+            }
+        }
+
+        fun buildPerformanceNotification(
+            context: Context,
+            profileTitle: String,
+            powerPct: Int,
+            lockedHz: Int,
+            cpuTemp: Float,
+            gpuTemp: Float,
+            isThrottling: Boolean
+        ): Notification {
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val openPendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val stopIntent = Intent(context, PerformanceForegroundService::class.java).apply {
+                action = ACTION_STOP_PERFORMANCE
+            }
+            val stopPendingIntent = PendingIntent.getService(
+                context,
+                1,
+                stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val title = if (isThrottling) {
+                "⚠️ THERMAL THROTTLE ALERT • CPU ${cpuTemp}°C / GPU ${gpuTemp}°C"
             } else {
-                context.startService(intent)
+                "Raunak Exploits • $profileTitle ($powerPct% • ${lockedHz}Hz)"
+            }
+            val body = if (isThrottling) {
+                "SoC heat is causing FPS drops • Cool down device (Zero-Contention Active)"
+            } else {
+                "${lockedHz}Hz Pinned • CPU ${cpuTemp}°C • GPU ${gpuTemp}°C • Game Anti-Drop ON"
+            }
+
+            return NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(openPendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Lock", stopPendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+        }
+
+        fun startService(context: Context) {
+            try {
+                val intent = Intent(context, PerformanceForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: Throwable) {
             }
         }
 
         fun updateNotification(context: Context) {
             try {
                 val engine = AndroidPerformanceEngine.getInstance(context.applicationContext)
-                if (!engine.telemetryState.value.isSessionActive) return
-                val intent = Intent(context, PerformanceForegroundService::class.java)
-                context.startService(intent)
+                val state = engine.telemetryState.value
+                if (!state.isSessionActive) return
+                ensureNotificationChannel(context)
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+                val notification = buildPerformanceNotification(
+                    context = context,
+                    profileTitle = state.selectedProfile.title,
+                    powerPct = state.lockedPowerPercent,
+                    lockedHz = state.selectedRefreshRate.hz,
+                    cpuTemp = state.thermalStatus.cpuTempCelsius,
+                    gpuTemp = state.thermalStatus.gpuTempCelsius,
+                    isThrottling = state.thermalStatus.isThrottling
+                )
+                nm.notify(NOTIFICATION_ID, notification)
             } catch (_: Throwable) {
             }
         }
 
         fun stopService(context: Context) {
-            val intent = Intent(context, PerformanceForegroundService::class.java)
-            context.stopService(intent)
+            try {
+                val intent = Intent(context, PerformanceForegroundService::class.java)
+                context.stopService(intent)
+            } catch (_: Throwable) {
+            }
         }
     }
 }

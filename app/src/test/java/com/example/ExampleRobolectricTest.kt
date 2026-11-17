@@ -237,4 +237,50 @@ class ExampleRobolectricTest {
 
         engine.stopPerformanceSession("Test cleanup")
     }
+
+    @Test
+    fun verifyIndependentCpuGpuPowerControlAnd144HzTarget() {
+        engine.setRefreshRateTarget(com.example.model.RefreshRateTarget.HZ_144)
+        engine.startPerformanceSession(
+            profile = PerformanceProfile.DIABLO_MODE,
+            workloadFocus = WorkloadFocus.COMBINED_MAX
+        )
+
+        // Independent custom duty levels while active
+        engine.setCpuDutyOverride(75)
+        engine.setGpuDutyOverride(50)
+        var state = engine.telemetryState.value
+        assertEquals(75, state.realMeasuredThreadDutyPercent)
+        assertEquals(50, state.gpuLockedDutyPercent)
+        assertEquals(75, state.lockedPowerPercent)
+        assertEquals(144, state.lockedRefreshRateHz)
+        assertEquals("ACTIVE", state.cpuStatus.requestState)
+
+        // Isolate GPU only (CPU 0%, GPU 100%)
+        engine.setCpuDutyOverride(0)
+        engine.setGpuDutyOverride(100)
+        state = engine.telemetryState.value
+        assertEquals(0, state.realMeasuredThreadDutyPercent)
+        assertEquals(100, state.gpuLockedDutyPercent)
+        assertEquals("IDLE (GPU FOCUS)", state.cpuStatus.requestState)
+
+        // Isolate CPU only (CPU 100%, GPU 0%)
+        engine.setCpuDutyOverride(100)
+        engine.setGpuDutyOverride(0)
+        state = engine.telemetryState.value
+        assertEquals(100, state.realMeasuredThreadDutyPercent)
+        assertEquals(0, state.gpuLockedDutyPercent)
+        assertEquals("IDLE (CPU FOCUS)", state.gpuStatus.requestState)
+        assertEquals("ACTIVE (DIABLO OVERDRIVE)", state.cpuStatus.requestState)
+
+        // Reset via WorkloadFocus restores profile defaults cleanly
+        engine.setWorkloadFocus(WorkloadFocus.COMBINED_MAX)
+        state = engine.telemetryState.value
+        assertEquals(null, state.customCpuDutyOverride)
+        assertEquals(null, state.customGpuDutyOverride)
+        assertEquals(100, state.realMeasuredThreadDutyPercent)
+        assertEquals(100, state.gpuLockedDutyPercent)
+
+        engine.stopPerformanceSession("Test cleanup")
+    }
 }

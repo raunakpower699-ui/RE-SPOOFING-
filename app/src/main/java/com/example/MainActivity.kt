@@ -247,6 +247,14 @@ fun MainAppContent(
                         recentSessions = recentSessions,
                         onSelectProfile = { viewModel.selectProfile(it) },
                         onSelectWorkloadFocus = { viewModel.selectWorkloadFocus(it) },
+                        onSelectCpuPowerTarget = { viewModel.selectCpuPowerTarget(it) },
+                        onSelectGpuPowerTarget = { viewModel.selectGpuPowerTarget(it) },
+                        onSelectEngineWorkloadMode = { viewModel.selectEngineWorkloadMode(it) },
+                        onStartPerformanceMode = {
+                            viewModel.startPerformanceMode()
+                            onApplyWindowRefreshRate()
+                        },
+                        onStopPerformanceMode = { viewModel.stopPerformanceMode() },
                         onClearHistory = { viewModel.clearSessionHistory() }
                     )
                 }

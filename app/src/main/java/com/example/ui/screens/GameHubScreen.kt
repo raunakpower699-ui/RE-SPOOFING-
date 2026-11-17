@@ -176,6 +176,32 @@ fun GameHubScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        WorkloadFocus.entries.forEach { focus ->
+                            val selected = selectedFocus == focus
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selected) CobaltDeep else ObsidianBg,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (selected) TelemetryGreen else CarbonBorder
+                                ),
+                                modifier = Modifier.clickable { selectedFocus = focus }
+                            ) {
+                                Text(
+                                    text = focus.title,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) TelemetryGreen else TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Row(
@@ -368,7 +394,7 @@ fun GameHubScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Profile: ${game.assignedProfileId}",
+                                text = "Profile: ${game.assignedProfileId} • Focus: ${game.assignedFocusId}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = DiabloRed,
                                 fontWeight = FontWeight.SemiBold

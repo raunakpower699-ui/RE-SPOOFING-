@@ -365,7 +365,8 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
 
                 Text(
                     text = if (isActive) {
-                        "Anti-Drop Active: 99% CPU/GPU free for games • ${state.selectedRefreshRate.label} pinned"
+                        val modeText = if (state.antiFpsDropGuardEnabled) "Anti-Drop (${state.gameCpuHeadroomPercent}% Free)" else "Unclamped Max"
+                        "$modeText • CPU ${state.realMeasuredThreadDutyPercent}% / GPU ${state.gpuLockedDutyPercent}% • ${state.selectedRefreshRate.label}"
                     } else {
                         "${state.deviceSpecs.androidVersionLabel} • Pick Hz & Mode, then tap Start"
                     },
@@ -607,10 +608,21 @@ private fun LiquidGlassReactorActionButton(
 
                 Spacer(modifier = Modifier.width(14.dp))
 
-                val targetPowerLabel = when (state.selectedProfile) {
-                    PerformanceProfile.DIABLO_MODE -> "100% MAX POWER"
-                    PerformanceProfile.BALANCE_MODE -> "70% BALANCE POWER"
-                    PerformanceProfile.SAVING_MODE -> "25% COOL SAVER"
+                val targetPowerLabel = if (state.customCpuDutyOverride != null || state.customGpuDutyOverride != null) {
+                    val basePct = when (state.selectedProfile) {
+                        PerformanceProfile.DIABLO_MODE -> 100
+                        PerformanceProfile.BALANCE_MODE -> 70
+                        PerformanceProfile.SAVING_MODE -> 25
+                    }
+                    val cpuTarget = state.customCpuDutyOverride ?: if (state.selectedWorkloadFocus.enableCpuHints) basePct else 0
+                    val gpuTarget = state.customGpuDutyOverride ?: if (state.selectedWorkloadFocus.enableGpuGameHints) basePct else 0
+                    "CPU $cpuTarget% / GPU $gpuTarget%"
+                } else {
+                    when (state.selectedProfile) {
+                        PerformanceProfile.DIABLO_MODE -> "100% MAX POWER"
+                        PerformanceProfile.BALANCE_MODE -> "70% BALANCE POWER"
+                        PerformanceProfile.SAVING_MODE -> "25% COOL SAVER"
+                    }
                 }
                 val hzLabel = state.selectedRefreshRate.label
 
@@ -625,7 +637,7 @@ private fun LiquidGlassReactorActionButton(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (isActive) {
-                            "Zero-Drop Active • Thermal Monitor ON • Tap to stop"
+                            "${if (state.antiFpsDropGuardEnabled) "Game Anti-Drop" else "Unclamped Max"} • Thermal Monitor ON • Tap to stop"
                         } else {
                             "Stable FPS Lock & Real-Time Thermal Guard (Even at 1%)"
                         },
