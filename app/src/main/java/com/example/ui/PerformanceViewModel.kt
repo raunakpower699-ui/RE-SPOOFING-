@@ -14,6 +14,7 @@ import com.example.data.SessionHistoryEntity
 import com.example.data.UserPreferencesEntity
 import com.example.engine.AndroidPerformanceEngine
 import android.view.Window
+import com.example.model.EngineWorkloadMode
 import com.example.model.InstalledAppItem
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
@@ -81,6 +82,20 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        engine.onThermalAlertTriggered = { alertMsg ->
+            if (userPreferences.value.batteryProtectionWarningEnabled) {
+                _uiBannerMessage.value = alertMsg
+            }
+        }
+
+        viewModelScope.launch {
+            repository.userPreferences.collect { prefs ->
+                if (engine.telemetryState.value.floatingFpsOverlayEnabled != prefs.floatingFpsOverlayEnabled) {
+                    engine.setFloatingFpsOverlayEnabled(prefs.floatingFpsOverlayEnabled)
+                }
+            }
+        }
+
         loadInstalledApplications()
     }
 
@@ -111,6 +126,22 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
 
     fun refreshPermissionsAndTelemetry() {
         engine.refreshStaticAndDynamicTelemetry()
+    }
+
+    fun selectEngineWorkloadMode(mode: EngineWorkloadMode) {
+        engine.setEngineWorkloadMode(mode)
+        _uiBannerMessage.value = when (mode) {
+            EngineWorkloadMode.GAME_ANTI_DROP -> "🎯 Game Anti-Drop ON: 98% CPU/GPU free for games — zero FPS drops!"
+            EngineWorkloadMode.BENCHMARK_STRESS -> "🔥 Benchmark Stress ON (Auto-pauses when you switch to a game)."
+        }
+    }
+
+    fun onAppForegroundStateChanged(inBackground: Boolean) {
+        engine.onAppForegroundStateChanged(inBackground)
+    }
+
+    fun dismissThermalAlert() {
+        engine.dismissThermalAlert()
     }
 
     fun selectUniversalTier(tier: UniversalDeviceTier) {
@@ -222,6 +253,27 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             val current = userPreferences.value
             repository.updatePreferences(current.copy(autoStartMaxPowerOnLaunch = enabled))
         }
+    }
+
+    fun updateFloatingFpsOverlay(enabled: Boolean) {
+        val shown = engine.setFloatingFpsOverlayEnabled(enabled)
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = userPreferences.value
+            repository.updatePreferences(current.copy(floatingFpsOverlayEnabled = enabled))
+        }
+        val state = engine.telemetryState.value
+        _uiBannerMessage.value = when {
+            !enabled -> "Floating FPS Overlay hidden."
+            state.isSessionActive && shown -> "🎯 Floating FPS HUD active! Drag it anywhere over your game."
+            state.isSessionActive && !state.refreshRatePermissions.canDrawOverlays ->
+                "Overlay permission needed to show Floating FPS HUD over games."
+            else -> "🎯 Floating FPS HUD enabled — appears automatically when you tap Start."
+        }
+    }
+
+    fun toggleFloatingFpsOverlay() {
+        val next = !engine.telemetryState.value.floatingFpsOverlayEnabled
+        updateFloatingFpsOverlay(next)
     }
 
     private fun loadInstalledApplications() {

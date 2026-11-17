@@ -132,8 +132,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.onAppForegroundStateChanged(false)
         viewModel.refreshPermissionsAndTelemetry()
         viewModel.applyWindowRefreshRate(window)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.onAppForegroundStateChanged(true)
     }
 }
 
@@ -231,8 +237,8 @@ fun MainAppContent(
                             viewModel.selectRefreshRate(target)
                             onApplyWindowRefreshRate()
                         },
-                        onSelectUniversalTier = { viewModel.selectUniversalTier(it) },
-                        onCleanAndOptimizeRam = { viewModel.cleanAndOptimizeRam() }
+                        onDismissThermalAlert = { viewModel.dismissThermalAlert() },
+                        onToggleFloatingFpsOverlay = { viewModel.toggleFloatingFpsOverlay() }
                     )
                 }
                 AppNavTab.PROFILES -> {
@@ -260,7 +266,8 @@ fun MainAppContent(
                         preferences = preferences,
                         onToggleBatteryWarning = { viewModel.updateBatteryWarning(it) },
                         onToggleBootRestore = { viewModel.updateBootRestore(it) },
-                        onToggleAutoStart = { viewModel.updateAutoStartMaxPower(it) }
+                        onToggleAutoStart = { viewModel.updateAutoStartMaxPower(it) },
+                        onToggleFloatingFpsOverlay = { viewModel.updateFloatingFpsOverlay(it) }
                     )
                 }
             }

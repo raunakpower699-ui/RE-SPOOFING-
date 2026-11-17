@@ -43,11 +43,21 @@ class RedMagicHardwareController(private val context: Context) {
         currentTargetHz = hz.coerceIn(60, 165)
     }
 
-    fun startOpenGlGpuFloorLock(scope: CoroutineScope, isExtreme: Boolean, targetHz: Int = 144) {
+    fun startOpenGlGpuFloorLock(
+        scope: CoroutineScope,
+        isExtreme: Boolean,
+        targetHz: Int = 144,
+        zeroContentionKeepWarm: Boolean = true
+    ) {
         currentTargetHz = targetHz.coerceIn(60, 165)
         if (isGpuRunning.getAndSet(true)) return
 
         gpuJob = scope.launch(Dispatchers.Default) {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_LOWEST)
+            } catch (_: Throwable) {
+            }
+
             var eglDisplay: EGLDisplay? = null
             var eglContext: EGLContext? = null
             var eglSurface: EGLSurface? = null
@@ -77,9 +87,10 @@ class RedMagicHardwareController(private val context: Context) {
                 )
                 eglContext = EGL14.eglCreateContext(eglDisplay, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
+                val surfSize = if (zeroContentionKeepWarm) 16 else 128
                 val pbufferAttribs = intArrayOf(
-                    EGL14.EGL_WIDTH, 128,
-                    EGL14.EGL_HEIGHT, 128,
+                    EGL14.EGL_WIDTH, surfSize,
+                    EGL14.EGL_HEIGHT, surfSize,
                     EGL14.EGL_NONE
                 )
                 eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, config, pbufferAttribs, 0)
@@ -95,7 +106,17 @@ class RedMagicHardwareController(private val context: Context) {
                     }
                 """.trimIndent()
 
-                val fragmentShaderCode = """
+                val fragmentShaderCode = if (zeroContentionKeepWarm) {
+                    """
+                    precision lowp float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    void main() {
+                        gl_FragColor = vec4(0.01, 0.01, 0.01, 1.0);
+                    }
+                    """.trimIndent()
+                } else {
+                    """
                     precision highp float;
                     uniform vec2 uResolution;
                     uniform float uTime;
@@ -113,7 +134,8 @@ class RedMagicHardwareController(private val context: Context) {
                         }
                         gl_FragColor = vec4(color, 1.0);
                     }
-                """.trimIndent()
+                    """.trimIndent()
+                }
 
                 val program = createProgram(vertexShaderCode, fragmentShaderCode)
                 val vPositionLoc = GLES20.glGetAttribLocation(program, "vPosition")
@@ -134,26 +156,35 @@ class RedMagicHardwareController(private val context: Context) {
 
                 var frameCount = 0
                 while (isActive && isGpuRunning.get()) {
-                    GLES20.glViewport(0, 0, 128, 128)
-                    GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
+                    GLES20.glViewport(0, 0, surfSize, surfSize)
+                    GLES20.glClearColor(0.05f, 0.05f, 0.05f, 1.0f)
                     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
                     GLES20.glUseProgram(program)
                     GLES20.glEnableVertexAttribArray(vPositionLoc)
                     GLES20.glVertexAttribPointer(vPositionLoc, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
 
-                    GLES20.glUniform2f(uResolutionLoc, 128f, 128f)
+                    GLES20.glUniform2f(uResolutionLoc, surfSize.toFloat(), surfSize.toFloat())
                     GLES20.glUniform1f(uTimeLoc, frameCount * 0.05f)
 
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                    GLES20.glFinish()
+                    if (zeroContentionKeepWarm) {
+                        // Non-blocking flush keeps GPU devfreq clock awake with ZERO glFinish() pipeline stall for PUBG!
+                        GLES20.glFlush()
+                    } else {
+                        GLES20.glFinish()
+                    }
 
                     frameCount++
-                    val hzPaceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(5L, 16L)
-                    if (isExtreme) {
-                        SystemClock.sleep(hzPaceMs.coerceAtMost(6L)) // Synced to 165Hz/144Hz floor without driver hang
+                    if (zeroContentionKeepWarm) {
+                        SystemClock.sleep(16L)
                     } else {
-                        SystemClock.sleep(hzPaceMs)
+                        val hzPaceMs = (1000L / currentTargetHz.coerceIn(60, 165)).coerceIn(5L, 16L)
+                        if (isExtreme) {
+                            SystemClock.sleep(hzPaceMs.coerceAtMost(6L))
+                        } else {
+                            SystemClock.sleep(hzPaceMs)
+                        }
                     }
                 }
             } catch (_: Throwable) {

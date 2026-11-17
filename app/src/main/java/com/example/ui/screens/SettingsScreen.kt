@@ -39,6 +39,7 @@ fun SettingsScreen(
     onToggleBatteryWarning: (Boolean) -> Unit,
     onToggleBootRestore: (Boolean) -> Unit,
     onToggleAutoStart: (Boolean) -> Unit,
+    onToggleFloatingFpsOverlay: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -94,6 +95,16 @@ fun SettingsScreen(
         }
 
         item {
+            SettingsToggleCard(
+                title = "Floating FPS Overlay (In-Game HUD)",
+                description = "Displays a draggable real-time FPS, frame-time, and stability sparkline over games.",
+                checked = preferences.floatingFpsOverlayEnabled,
+                onCheckedChange = onToggleFloatingFpsOverlay,
+                testTag = "floating_fps_overlay_switch"
+            )
+        }
+
+        item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -124,7 +135,8 @@ private fun SettingsToggleCard(
     title: String,
     description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    testTag: String? = null
 ) {
     Card(
         modifier = Modifier
@@ -154,6 +166,7 @@ private fun SettingsToggleCard(
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
+                modifier = if (testTag != null) Modifier.testTag(testTag) else Modifier,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = TextPrimary,
                     checkedTrackColor = ElectricCyan

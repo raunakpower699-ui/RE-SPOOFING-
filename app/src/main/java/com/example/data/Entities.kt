@@ -30,5 +30,6 @@ data class UserPreferencesEntity(
     @PrimaryKey val id: Int = 1,
     val batteryProtectionWarningEnabled: Boolean = true,
     val autoRestoreOnBoot: Boolean = false,
-    val autoStartMaxPowerOnLaunch: Boolean = false
+    val autoStartMaxPowerOnLaunch: Boolean = false,
+    val floatingFpsOverlayEnabled: Boolean = true
 )

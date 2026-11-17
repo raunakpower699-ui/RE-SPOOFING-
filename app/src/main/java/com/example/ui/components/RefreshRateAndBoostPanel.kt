@@ -8,11 +8,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,17 +20,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -57,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.PerformanceTelemetryState
 import com.example.model.RefreshRateTarget
-import com.example.model.UniversalDeviceTier
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.DiabloOrange
 import com.example.ui.theme.DiabloRed
@@ -69,7 +61,6 @@ import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassSurfaceElevated
 import com.example.ui.theme.LiquidGlassGradient
 import com.example.ui.theme.TelemetryGreen
-import com.example.ui.theme.TelemetryGreenGlow
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
@@ -164,7 +155,7 @@ fun RefreshRateLockControlCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Select 90 / 120 / 144 / 165 Hz • OriginOS 6/7 Android 16 Fixed Lock (Even at 1% Battery)",
+                text = "Select 90 / 120 / 144 / 165 Hz • Fixed Lock (Even at 1% Battery)",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
@@ -192,7 +183,6 @@ fun RefreshRateLockControlCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Hardware panel info + active lock banner
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = GlassSurfaceElevated,
@@ -233,35 +223,13 @@ fun RefreshRateLockControlCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // OriginOS 6/7 Android 16 System Permission Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                PermissionStatusChip(
-                    label = "Overlay Anchor",
-                    granted = perms.canDrawOverlays,
-                    onClick = { openOverlayPermission(context) },
-                    modifier = Modifier.weight(1f)
-                )
-                PermissionStatusChip(
-                    label = "System Hz Write",
-                    granted = perms.canWriteSystemSettings,
-                    onClick = { openWriteSettingsPermission(context) },
-                    modifier = Modifier.weight(1f)
-                )
-                PermissionStatusChip(
-                    label = "1% Battery Exempt",
-                    granted = perms.isBatteryOptimizationIgnored,
-                    onClick = { openBatteryOptimizationExemption(context) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
             if (!perms.allPermissionsReady) {
                 Spacer(modifier = Modifier.height(10.dp))
+                val missingLabel = when {
+                    !perms.canDrawOverlays -> "TAP TO ENABLE OVERLAY HZ LOCK"
+                    !perms.canWriteSystemSettings -> "TAP TO ENABLE SYSTEM HZ WRITE"
+                    else -> "TAP TO ENABLE 1% BATTERY BYPASS"
+                }
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = DiabloOrange.copy(alpha = 0.16f),
@@ -291,7 +259,7 @@ fun RefreshRateLockControlCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "TAP TO UNLOCK GLOBAL HZ & 1% BATTERY BYPASS",
+                            text = missingLabel,
                             style = MaterialTheme.typography.labelSmall,
                             color = TextPrimary,
                             fontWeight = FontWeight.ExtraBold,
@@ -385,178 +353,6 @@ private fun RefreshRateTile(
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
-        }
-    }
-}
-
-@Composable
-private fun PermissionStatusChip(
-    label: String,
-    granted: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val chipColor = if (granted) TelemetryGreen else DiabloOrange
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = chipColor.copy(alpha = 0.12f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, chipColor.copy(alpha = 0.55f)),
-        modifier = modifier
-            .heightIn(min = 48.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = if (granted) Icons.Filled.CheckCircle else Icons.Filled.WarningAmber,
-                contentDescription = label,
-                tint = chipColor,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = TextPrimary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-fun UniversalMakkhanTunerCard(
-    state: PerformanceTelemetryState,
-    onSelectUniversalTier: (UniversalDeviceTier) -> Unit,
-    onCleanAndOptimizeRam: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val haptic = LocalHapticFeedback.current
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = GlassSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("universal_tuner_card")
-    ) {
-        Column(
-            modifier = Modifier
-                .background(LiquidGlassGradient)
-                .padding(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Memory,
-                        contentDescription = "RAM & Engine",
-                        tint = TelemetryGreen,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text(
-                            text = "UNIVERSAL ENGINE • ${state.deviceSpecs.totalRamGb}GB RAM",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = "${state.deviceSpecs.availableRamGb}GB Free • ${state.deviceSpecs.cpuCoreConfiguration}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = TelemetryGreen.copy(alpha = 0.18f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TelemetryGreen),
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .shadow(6.dp, RoundedCornerShape(12.dp), ambientColor = TelemetryGreenGlow, spotColor = TelemetryGreenGlow)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCleanAndOptimizeRam()
-                        }
-                        .testTag("ram_clean_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CleaningServices,
-                            contentDescription = "Clean RAM",
-                            tint = TelemetryGreen,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (state.freedRamMbLastClean > 0) "FREED ${state.freedRamMbLastClean}MB" else "BOOST RAM",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TelemetryGreen,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                UniversalDeviceTier.entries.forEach { tier ->
-                    val isSelected = state.activeUniversalTier == tier
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) CobaltDeep else GlassSurfaceElevated,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.2.dp,
-                            if (isSelected) ElectricCyan else GlassBorder
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSelectUniversalTier(tier)
-                            }
-                            .testTag("tier_chip_${tier.id}")
-                    ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = tier.title,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isSelected) ElectricCyan else TextSecondary,
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }

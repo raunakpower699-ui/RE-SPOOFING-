@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -9,7 +8,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,13 +31,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,12 +47,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -71,9 +62,9 @@ import com.example.R
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
 import com.example.model.RefreshRateTarget
-import com.example.model.UniversalDeviceTier
+import com.example.ui.components.RealTimeThermalMonitorCard
 import com.example.ui.components.RefreshRateLockControlCard
-import com.example.ui.components.UniversalMakkhanTunerCard
+import com.example.ui.components.ThermalThrottlingAlertBanner
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.DiabloGlassGradient
 import com.example.ui.theme.DiabloOrange
@@ -83,10 +74,8 @@ import com.example.ui.theme.DiabloRedGlow
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ElectricCyanGlow
 import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassBorderActive
 import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.GreenGlassGradient
 import com.example.ui.theme.LiquidGlassGradient
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.TelemetryGreen
@@ -101,8 +90,8 @@ fun DashboardScreen(
     onStopPerformanceMode: () -> Unit,
     onSelectProfile: (PerformanceProfile) -> Unit,
     onSelectRefreshRate: (RefreshRateTarget) -> Unit = {},
-    onSelectUniversalTier: (UniversalDeviceTier) -> Unit = {},
-    onCleanAndOptimizeRam: () -> Unit = {},
+    onDismissThermalAlert: () -> Unit = {},
+    onToggleFloatingFpsOverlay: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -115,12 +104,20 @@ fun DashboardScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Raunak Exploits Branding Hero Card
+        // 1. Real-Time Thermal Throttling Alert (Shown only when throttling is detected)
+        item {
+            ThermalThrottlingAlertBanner(
+                state = state,
+                onDismiss = onDismissThermalAlert
+            )
+        }
+
+        // 2. Raunak Exploits Branding Hero Card + Live CPU/GPU Temp Pill
         item {
             RaunakExploitsBrandingHero(state = state)
         }
 
-        // 2. Refresh Rate Lock Selector (90 / 120 / 144 / 165 Hz) + 1% Battery Guard
+        // 3. Refresh Rate Lock Selector (90 / 120 / 144 / 165 Hz) + 1% Battery Guard
         item {
             RefreshRateLockControlCard(
                 state = state,
@@ -128,7 +125,7 @@ fun DashboardScreen(
             )
         }
 
-        // 2. Big, Clear, High-Impact Liquid Glass Mode Selection Cards
+        // 4. Clean 3-Mode Selector (No Extra Clutter Buttons)
         item {
             Text(
                 text = "SELECT PERFORMANCE TUNING MODE",
@@ -144,7 +141,7 @@ fun DashboardScreen(
             BigLiquidGlassModeCard(
                 title = "🔥 DIABLO MODE",
                 powerBadge = "100% UNCLAMPED LOCK",
-                detail = "Continuous 100% CPU & GPU Duty • Zero Throttling • Max FPS in Competitive Games & Benchmarks",
+                detail = "Zero-Contention 120+ FPS Lock • Frees 99% CPU/GPU for Games • Zero 1% Battery Drop",
                 isSelected = state.selectedProfile == PerformanceProfile.DIABLO_MODE,
                 accentColor = DiabloRed,
                 glowColor = DiabloRedGlow,
@@ -160,7 +157,7 @@ fun DashboardScreen(
             BigLiquidGlassModeCard(
                 title = "⚖️ BALANCE MODE",
                 powerBadge = "70% ADAPTIVE FLOOR",
-                detail = "Optimal Gaming & Frame Pacing • 70% Steady Compute Floor • Balanced Thermals & Smooth Performance",
+                detail = "Optimal Gaming & Frame Pacing • 70% Steady Compute Floor • Cool Thermals & Smooth FPS",
                 isSelected = state.selectedProfile == PerformanceProfile.BALANCE_MODE,
                 accentColor = ElectricCyan,
                 glowColor = ElectricCyanGlow,
@@ -176,7 +173,7 @@ fun DashboardScreen(
             BigLiquidGlassModeCard(
                 title = "🍃 BATTERY SAVING MODE",
                 powerBadge = "25% COOL SAVER",
-                detail = "Energy Saving & Rapid Thermal Cool-Down • 25% Duty Restriction • Maximum Battery Life & Cool Hardware",
+                detail = "Thermal Cool-Down Mode • Keeps Selected Hz Pinned While Cooling CPU & GPU",
                 isSelected = state.selectedProfile == PerformanceProfile.SAVING_MODE,
                 accentColor = TelemetryGreen,
                 glowColor = TelemetryGreenGlow,
@@ -188,7 +185,7 @@ fun DashboardScreen(
             )
         }
 
-        // 3. Liquid Glass Reactor Action Button (Redesigned, Futuristic, Elegant)
+        // 5. Single Primary Start/Stop Reactor Action Button
         item {
             LiquidGlassReactorActionButton(
                 state = state,
@@ -203,23 +200,12 @@ fun DashboardScreen(
             )
         }
 
-        // 4. Universal Makkhan RAM Booster & Tier Tuner
+        // 6. Real-Time CPU/GPU Thermal Monitor & FPS Stability Card
         item {
-            UniversalMakkhanTunerCard(
+            RealTimeThermalMonitorCard(
                 state = state,
-                onSelectUniversalTier = onSelectUniversalTier,
-                onCleanAndOptimizeRam = onCleanAndOptimizeRam
+                onToggleFloatingFpsOverlay = onToggleFloatingFpsOverlay
             )
-        }
-
-        // 5. Real Hardware Liquid Glass Telemetry Gauges
-        item {
-            LiquidHardwareTelemetryGauges(state = state)
-        }
-
-        // 6. Liquid Power Stability Wave Graph
-        item {
-            LiquidPowerStabilityGraph(state = state)
         }
 
         item {
@@ -246,6 +232,11 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
         PerformanceProfile.DIABLO_MODE -> DiabloRed
         PerformanceProfile.BALANCE_MODE -> ElectricCyan
         PerformanceProfile.SAVING_MODE -> TelemetryGreen
+    }
+    val thermalColor = when {
+        state.thermalStatus.isThrottling -> DiabloRed
+        state.thermalStatus.cpuTempCelsius >= 60f -> DiabloOrange
+        else -> TelemetryGreen
     }
 
     val glassBorderBrush = Brush.linearGradient(
@@ -301,7 +292,7 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "ORIGINOS 6/7 • ANDROID 16 OVERDRIVE",
+                            text = "ZERO-DROP GAMING • THERMAL GUARD",
                             style = MaterialTheme.typography.labelSmall,
                             color = ElectricCyan,
                             fontWeight = FontWeight.Bold,
@@ -329,20 +320,54 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = state.deviceSpecs.phoneDisplayName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = state.deviceSpecs.phoneDisplayName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = thermalColor.copy(alpha = 0.16f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, thermalColor.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Thermostat,
+                                contentDescription = "CPU GPU Temperature",
+                                tint = thermalColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "${state.thermalStatus.cpuTempCelsius}° / ${state.thermalStatus.gpuTempCelsius}°C",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = thermalColor,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = if (isActive) {
-                        "Locked at ${state.lockedPowerPercent}% CPU/GPU & ${state.selectedRefreshRate.label} • 1% Battery Bypass Active"
+                        "Anti-Drop Active: 99% CPU/GPU free for games • ${state.selectedRefreshRate.label} pinned"
                     } else {
-                        "${state.deviceSpecs.androidVersionLabel} • Select Hz (90/120/144/165) & Mode below"
+                        "${state.deviceSpecs.androidVersionLabel} • Pick Hz & Mode, then tap Start"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
@@ -600,9 +625,9 @@ private fun LiquidGlassReactorActionButton(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (isActive) {
-                            "Pinned even at 1% battery • Tap to release locks"
+                            "Zero-Drop Active • Thermal Monitor ON • Tap to stop"
                         } else {
-                            "Locks CPU/GPU & $hzLabel continuously (Zero 1% Battery Drop)"
+                            "Stable FPS Lock & Real-Time Thermal Guard (Even at 1%)"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary.copy(alpha = 0.85f)
@@ -612,248 +637,3 @@ private fun LiquidGlassReactorActionButton(
         }
     }
 }
-
-@Composable
-private fun LiquidHardwareTelemetryGauges(state: PerformanceTelemetryState) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = GlassSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .background(LiquidGlassGradient)
-                .padding(14.dp)
-        ) {
-            Text(
-                text = "REAL HARDWARE TELEMETRY GAUGES",
-                style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LiquidTelemetryMetricBox(
-                    label = "CPU POWER LOCK",
-                    value = if (state.isSessionActive) "${state.lockedPowerPercent}%" else "NORMAL IDLE",
-                    subtext = "${state.deviceSpecs.cpuCoreConfiguration} Active",
-                    color = if (state.isSessionActive) DiabloRed else TextSecondary,
-                    progress = if (state.isSessionActive) state.lockedPowerPercent / 100f else 0f,
-                    modifier = Modifier.weight(1f)
-                )
-
-                LiquidTelemetryMetricBox(
-                    label = "REFRESH RATE LOCK",
-                    value = if (state.isSessionActive) "${state.lockedRefreshRateHz} Hz" else "${state.selectedRefreshRate.hz} Hz",
-                    subtext = if (state.isSessionActive) "Pinned (1% Safe)" else "Panel Max ${state.deviceSpecs.panelMaxRefreshRateHz}Hz",
-                    color = if (state.isSessionActive) TelemetryGreen else ElectricCyan,
-                    progress = state.selectedRefreshRate.hz / 165f,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LiquidTelemetryMetricBox(
-                    label = "GPU FLOOR LOCK",
-                    value = if (state.isSessionActive) "${state.gpuLockedDutyPercent}%" else "SYSTEM IDLE",
-                    subtext = "${state.gpuFlopOverdriveGflops} GFLOPS • eglSwap(0)",
-                    color = if (state.isSessionActive) ElectricCyan else TextSecondary,
-                    progress = if (state.isSessionActive) state.gpuLockedDutyPercent / 100f else 0f,
-                    modifier = Modifier.weight(1f)
-                )
-
-                LiquidTelemetryMetricBox(
-                    label = "1% BATTERY GUARD",
-                    value = "${state.batteryStatus.levelPercent}% • ${state.batteryStatus.temperatureCelsius}°C",
-                    subtext = if (state.isSessionActive) "Zero 1% Drop • Bypass ON" else "Ready • ${state.thermalStatus.displaySummary}",
-                    color = if (state.batteryStatus.temperatureCelsius > 44f) DiabloOrange else TelemetryGreen,
-                    progress = (state.batteryStatus.levelPercent / 100f).coerceIn(0.02f, 1f),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LiquidTelemetryMetricBox(
-    label: String,
-    value: String,
-    subtext: String,
-    color: Color,
-    progress: Float,
-    modifier: Modifier = Modifier
-) {
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(600, easing = FastOutSlowInEasing),
-        label = "metricProgress"
-    )
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = GlassSurfaceElevated,
-        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier
-                .background(LiquidGlassGradient)
-                .padding(12.dp)
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                color = color,
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = FontFamily.Monospace
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(animatedProgress)
-                        .height(4.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(color.copy(alpha = 0.6f), color)
-                            )
-                        )
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = subtext,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary.copy(alpha = 0.7f),
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun LiquidPowerStabilityGraph(state: PerformanceTelemetryState) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = GlassSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .background(LiquidGlassGradient)
-                .padding(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "CONTINUOUS DUTY STABILITY (24 SAMPLES)",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Text(
-                    text = if (state.isSessionActive) "${state.lockedPowerPercent}% LOCKED" else "0% IDLE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (state.isSessionActive) DiabloRed else TextSecondary,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            val history = state.powerStabilityHistory
-            val lineColor = if (state.isSessionActive) DiabloRed else TextSecondary.copy(alpha = 0.4f)
-            val glowColor = if (state.isSessionActive) DiabloRedGlow else Color.Transparent
-
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(90.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0x20000000))
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-            ) {
-                if (history.size < 2) return@Canvas
-                val stepX = size.width / (history.size - 1)
-                val path = Path()
-                val fillPath = Path()
-
-                fillPath.moveTo(0f, size.height)
-
-                history.forEachIndexed { index, value ->
-                    val x = index * stepX
-                    val y = size.height - (value.coerceIn(0, 100) / 100f * (size.height - 12f)) - 6f
-                    if (index == 0) {
-                        path.moveTo(x, y)
-                        fillPath.lineTo(x, y)
-                    } else {
-                        path.lineTo(x, y)
-                        fillPath.lineTo(x, y)
-                    }
-                }
-
-                fillPath.lineTo(size.width, size.height)
-                fillPath.close()
-
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(glowColor, Color.Transparent)
-                    )
-                )
-
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
-                )
-
-                drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
-                    start = Offset(0f, size.height - 6f),
-                    end = Offset(size.width, size.height - 6f),
-                    strokeWidth = 1.dp.toPx()
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
-                    start = Offset(0f, 6f),
-                    end = Offset(size.width, 6f),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
-        }
-    }
-}
-

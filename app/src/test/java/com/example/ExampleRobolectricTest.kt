@@ -120,4 +120,93 @@ class ExampleRobolectricTest {
         engine.stopPerformanceSession("Test cleanup")
         engine.testBatteryOverridePercent = null
     }
+
+    @Test
+    fun verifyGameAntiDropAndBackgroundHandoff() {
+        engine.setRefreshRateTarget(com.example.model.RefreshRateTarget.HZ_120)
+        engine.setEngineWorkloadMode(com.example.model.EngineWorkloadMode.GAME_ANTI_DROP)
+        engine.startPerformanceSession(
+            profile = com.example.model.PerformanceProfile.DIABLO_MODE,
+            workloadFocus = com.example.model.WorkloadFocus.COMBINED_MAX
+        )
+        assertTrue(engine.telemetryState.value.antiFpsDropGuardEnabled)
+        assertEquals(98, engine.telemetryState.value.gameCpuHeadroomPercent)
+        assertEquals(120, engine.telemetryState.value.lockedRefreshRateHz)
+
+        // Switching to BENCHMARK_STRESS while in foreground lowers headroom,
+        // then backgrounding (launching a 120 FPS game) MUST free 99% headroom!
+        engine.setEngineWorkloadMode(com.example.model.EngineWorkloadMode.BENCHMARK_STRESS)
+        assertEquals(15, engine.telemetryState.value.gameCpuHeadroomPercent)
+
+        engine.onAppForegroundStateChanged(inBackground = true)
+        assertTrue(engine.telemetryState.value.backgroundZeroContentionActive)
+        assertTrue(engine.telemetryState.value.antiFpsDropGuardEnabled)
+        assertEquals(99, engine.telemetryState.value.gameCpuHeadroomPercent)
+        assertEquals(120, engine.telemetryState.value.lockedRefreshRateHz)
+
+        engine.onAppForegroundStateChanged(inBackground = false)
+        engine.setEngineWorkloadMode(com.example.model.EngineWorkloadMode.GAME_ANTI_DROP)
+        engine.stopPerformanceSession("Test cleanup")
+    }
+
+    @Test
+    fun verifyRealTimeThermalMonitoringAndThrottlingAlert() {
+        var alertTriggeredMessage: String? = null
+        engine.onThermalAlertTriggered = { msg -> alertTriggeredMessage = msg }
+
+        // 1. Cool state: no throttling
+        engine.testThermalOverrideCelsius = 42.0f
+        engine.refreshStaticAndDynamicTelemetry()
+        val coolThermal = engine.telemetryState.value.thermalStatus
+        assertFalse(coolThermal.isThrottling)
+        assertEquals(null, coolThermal.alertHeadline)
+        assertEquals(42.0f, coolThermal.cpuTempCelsius, 0.01f)
+        assertEquals(40.0f, coolThermal.gpuTempCelsius, 0.01f)
+
+        // 2. Hot throttling state: alert triggers, history tracks spike, dismissal works
+        engine.testThermalOverrideCelsius = 76.0f
+        engine.refreshStaticAndDynamicTelemetry()
+        val hotState = engine.telemetryState.value
+        assertTrue(hotState.thermalStatus.isThrottling)
+        assertEquals("THERMAL THROTTLING ALERT", hotState.thermalStatus.alertHeadline)
+        assertTrue(alertTriggeredMessage != null && alertTriggeredMessage!!.contains("76.0°C"))
+        assertEquals(76.0f, hotState.cpuTempHistory.last(), 0.01f)
+
+        engine.dismissThermalAlert()
+        assertTrue(engine.telemetryState.value.thermalAlertDismissed)
+
+        // 3. Cool down: alert clears and dismissal resets for future spikes
+        engine.testThermalOverrideCelsius = 42.0f
+        engine.refreshStaticAndDynamicTelemetry()
+        assertFalse(engine.telemetryState.value.thermalStatus.isThrottling)
+        assertFalse(engine.telemetryState.value.thermalAlertDismissed)
+
+        engine.onThermalAlertTriggered = null
+        engine.testThermalOverrideCelsius = null
+    }
+
+    @Test
+    fun verifyFloatingFpsOverlayAndStabilityTelemetry() {
+        assertTrue(engine.telemetryState.value.floatingFpsOverlayEnabled)
+
+        engine.setRefreshRateTarget(com.example.model.RefreshRateTarget.HZ_120)
+        engine.startPerformanceSession(
+            profile = PerformanceProfile.DIABLO_MODE,
+            workloadFocus = WorkloadFocus.COMBINED_MAX
+        )
+        val active = engine.telemetryState.value
+        assertEquals(120, active.liveMeasuredFps)
+        assertEquals(100, active.fpsStabilityPercent)
+        assertEquals(16, active.fpsHistory.size)
+
+        engine.setFloatingFpsOverlayEnabled(false)
+        assertFalse(engine.telemetryState.value.floatingFpsOverlayEnabled)
+        assertFalse(engine.telemetryState.value.floatingFpsOverlayVisible)
+
+        engine.setFloatingFpsOverlayEnabled(true)
+        assertTrue(engine.telemetryState.value.floatingFpsOverlayEnabled)
+
+        engine.stopPerformanceSession("Test cleanup")
+        assertFalse(engine.telemetryState.value.floatingFpsOverlayVisible)
+    }
 }

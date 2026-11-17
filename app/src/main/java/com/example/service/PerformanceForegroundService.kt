@@ -42,7 +42,10 @@ class PerformanceForegroundService : Service() {
         val notification = buildPerformanceNotification(
             profileTitle = state.selectedProfile.title,
             powerPct = if (state.isSessionActive) state.lockedPowerPercent else 100,
-            lockedHz = state.selectedRefreshRate.hz
+            lockedHz = state.selectedRefreshRate.hz,
+            cpuTemp = state.thermalStatus.cpuTempCelsius,
+            gpuTemp = state.thermalStatus.gpuTempCelsius,
+            isThrottling = state.thermalStatus.isThrottling
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -64,7 +67,10 @@ class PerformanceForegroundService : Service() {
     private fun buildPerformanceNotification(
         profileTitle: String,
         powerPct: Int,
-        lockedHz: Int
+        lockedHz: Int,
+        cpuTemp: Float,
+        gpuTemp: Float,
+        isThrottling: Boolean
     ): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -86,9 +92,20 @@ class PerformanceForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title = if (isThrottling) {
+            "⚠️ THERMAL THROTTLE ALERT • CPU ${cpuTemp}°C / GPU ${gpuTemp}°C"
+        } else {
+            "Raunak Exploits • $profileTitle ($powerPct% • ${lockedHz}Hz)"
+        }
+        val body = if (isThrottling) {
+            "SoC heat is causing FPS drops • Cool down device (Zero-Contention Active)"
+        } else {
+            "${lockedHz}Hz Pinned • CPU ${cpuTemp}°C • GPU ${gpuTemp}°C • Game Anti-Drop ON"
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Raunak Exploits • $profileTitle ($powerPct% Lock)")
-            .setContentText("$lockedHz Hz Refresh Rate Pinned • OriginOS 6/7 & 1% Battery Guard Active")
+            .setContentTitle(title)
+            .setContentText(body)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setOngoing(true)
             .setContentIntent(openPendingIntent)
@@ -123,6 +140,16 @@ class PerformanceForegroundService : Service() {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
+            }
+        }
+
+        fun updateNotification(context: Context) {
+            try {
+                val engine = AndroidPerformanceEngine.getInstance(context.applicationContext)
+                if (!engine.telemetryState.value.isSessionActive) return
+                val intent = Intent(context, PerformanceForegroundService::class.java)
+                context.startService(intent)
+            } catch (_: Throwable) {
             }
         }
 

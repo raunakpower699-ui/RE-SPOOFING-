@@ -94,6 +94,32 @@ data class RefreshRatePermissionStatus(
         get() = canDrawOverlays && canWriteSystemSettings && isBatteryOptimizationIgnored
 }
 
+enum class EngineWorkloadMode(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val badge: String
+) {
+    GAME_ANTI_DROP(
+        id = "GAME_ANTI_DROP",
+        title = "🎯 Game Anti-Drop (120+ FPS Lock)",
+        subtitle = "Zero CPU/GPU theft • ADPF + Wi-Fi Low-Latency + Hz Anchor keeps 98% power free for games",
+        badge = "ZERO DROP"
+    ),
+    BENCHMARK_STRESS(
+        id = "BENCHMARK_STRESS",
+        title = "🔥 Pure Stress / Benchmark Load",
+        subtitle = "Full CPU+GPU compute burn (Auto-pauses when you open a game so FPS never drops)",
+        badge = "STRESS"
+    );
+
+    companion object {
+        fun fromId(id: String?): EngineWorkloadMode {
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: GAME_ANTI_DROP
+        }
+    }
+}
+
 enum class WorkloadFocus(
     val id: String,
     val title: String,
@@ -247,7 +273,13 @@ enum class ThermalStatusLevel(val intValue: Int, val isThrottlingRisk: Boolean, 
 data class ThermalStatusInfo(
     val level: ThermalStatusLevel = ThermalStatusLevel.NONE,
     val isThrottling: Boolean = false,
-    val displaySummary: String = "Nominal / Cool"
+    val displaySummary: String = "Nominal / Cool",
+    val cpuTempCelsius: Float = 39.0f,
+    val gpuTempCelsius: Float = 37.0f,
+    val thermalHeadroomPercent: Int = 92,
+    val sensorSourceLabel: String = "SoC Thermal Telemetry",
+    val alertHeadline: String? = null,
+    val fpsDropCauseExplanation: String = "Thermals Optimal — Full FPS headroom available."
 )
 
 data class BatteryStatusInfo(
@@ -298,6 +330,17 @@ data class PerformanceTelemetryState(
     val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
     val selectedRefreshRate: RefreshRateTarget = RefreshRateTarget.HZ_144,
+    val engineWorkloadMode: EngineWorkloadMode = EngineWorkloadMode.GAME_ANTI_DROP,
+    val antiFpsDropGuardEnabled: Boolean = true,
+    val backgroundZeroContentionActive: Boolean = false,
+    val gameCpuHeadroomPercent: Int = 98,
+    val wifiLowLatencyLocked: Boolean = false,
+    val droppedFramesCount: Int = 0,
+    val floatingFpsOverlayEnabled: Boolean = true,
+    val floatingFpsOverlayVisible: Boolean = false,
+    val fpsStabilityPercent: Int = 100,
+    val minMeasuredFps: Int = 144,
+    val fpsHistory: List<Int> = List(16) { 144 },
     val lockedRefreshRateHz: Int = 0,
     val batteryBypass1PercentLockEnabled: Boolean = true,
     val originOsAndroid16Optimized: Boolean = true,
@@ -310,6 +353,9 @@ data class PerformanceTelemetryState(
     val deviceSpecs: DeviceLiveSpecs = DeviceLiveSpecs(),
     val compatibilityReport: DeviceCompatibilityReport = DeviceCompatibilityReport(),
     val thermalStatus: ThermalStatusInfo = ThermalStatusInfo(),
+    val cpuTempHistory: List<Float> = List(24) { 39.0f },
+    val gpuTempHistory: List<Float> = List(24) { 37.0f },
+    val thermalAlertDismissed: Boolean = false,
     val batteryStatus: BatteryStatusInfo = BatteryStatusInfo(),
     val cpuStatus: CpuStatusInfo = CpuStatusInfo(),
     val gpuStatus: GpuStatusInfo = GpuStatusInfo(),

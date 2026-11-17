@@ -9,11 +9,10 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.Choreographer
 import android.view.Display
 import android.view.Gravity
-import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.View
 import android.view.Window
 import android.view.WindowManager
 import com.example.model.RefreshRatePermissionStatus
@@ -24,7 +23,7 @@ import kotlin.math.roundToInt
 class RefreshRateLockController(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var overlaySurfaceView: SurfaceView? = null
+    private var overlayAnchorView: View? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     @Volatile
     private var isOverlayAnchored: Boolean = false
@@ -32,6 +31,79 @@ class RefreshRateLockController(private val context: Context) {
     private var isSystemSettingsApplied: Boolean = false
     @Volatile
     private var activeTarget: RefreshRateTarget = RefreshRateTarget.HZ_144
+    @Volatile
+    private var lastAppliedOverlayHz: Int = -1
+
+    @Volatile
+    var liveMeasuredFps: Int = 144
+        private set
+    @Volatile
+    var liveFrameTimeMs: Float = 6.9f
+        private set
+    @Volatile
+    var droppedFramesCount: Int = 0
+        private set
+    private var isMonitoringFrames = false
+    private var lastFrameNanos = 0L
+    private var frameCounter = 0
+    private var windowStartNanos = 0L
+
+    private val frameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!isMonitoringFrames) return
+            if (lastFrameNanos > 0L) {
+                val deltaNs = frameTimeNanos - lastFrameNanos
+                val deltaMs = deltaNs / 1_000_000f
+                if (deltaMs in 1.0f..500.0f) {
+                    liveFrameTimeMs = deltaMs
+                    val targetMs = 1000f / activeTarget.hz.toFloat()
+                    if (deltaMs > targetMs * 1.45f) {
+                        droppedFramesCount++
+                    }
+                }
+            }
+            lastFrameNanos = frameTimeNanos
+            frameCounter++
+            if (windowStartNanos == 0L) {
+                windowStartNanos = frameTimeNanos
+            } else if (frameTimeNanos - windowStartNanos >= 1_000_000_000L) {
+                val elapsedSec = (frameTimeNanos - windowStartNanos) / 1_000_000_000.0
+                val fps = (frameCounter / elapsedSec).roundToInt().coerceIn(1, 240)
+                liveMeasuredFps = fps
+                frameCounter = 0
+                windowStartNanos = frameTimeNanos
+            }
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    fun startFrameMonitor() {
+        mainHandler.post {
+            if (isMonitoringFrames) return@post
+            isMonitoringFrames = true
+            lastFrameNanos = 0L
+            frameCounter = 0
+            windowStartNanos = 0L
+            try {
+                Choreographer.getInstance().postFrameCallback(frameCallback)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun stopFrameMonitor() {
+        mainHandler.post {
+            isMonitoringFrames = false
+            try {
+                Choreographer.getInstance().removeFrameCallback(frameCallback)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun resetDroppedFrames() {
+        droppedFramesCount = 0
+    }
 
     data class PanelDisplayInfo(
         val resolutionLabel: String,
@@ -165,6 +237,7 @@ class RefreshRateLockController(private val context: Context) {
 
     fun releaseGlobalRefreshRateLock() {
         isSystemSettingsApplied = false
+        lastAppliedOverlayHz = -1
         detachOverlayAnchor()
     }
 
@@ -178,14 +251,38 @@ class RefreshRateLockController(private val context: Context) {
             val hzFloat = target.hz.toFloat()
             val hzInt = target.hz
 
-            // Standard Android + OriginOS / FuntouchOS / MIUI / ColorOS refresh rate keys
-            tryPutFloat(resolver, "min_refresh_rate", hzFloat)
-            tryPutFloat(resolver, "peak_refresh_rate", hzFloat)
-            tryPutInt(resolver, "user_refresh_rate", hzInt)
-            tryPutInt(resolver, "vivo_screen_refresh_rate_mode", hzInt)
+            // Only write keys if they drifted (avoids unnecessary ContentResolver churn during gaming)
+            if (readFloatOrNull(resolver, "min_refresh_rate") != hzFloat) {
+                tryPutFloat(resolver, "min_refresh_rate", hzFloat)
+            }
+            if (readFloatOrNull(resolver, "peak_refresh_rate") != hzFloat) {
+                tryPutFloat(resolver, "peak_refresh_rate", hzFloat)
+            }
+            if (readIntOrNull(resolver, "user_refresh_rate") != hzInt) {
+                tryPutInt(resolver, "user_refresh_rate", hzInt)
+            }
+            if (readIntOrNull(resolver, "vivo_screen_refresh_rate_mode") != hzInt) {
+                tryPutInt(resolver, "vivo_screen_refresh_rate_mode", hzInt)
+            }
             isSystemSettingsApplied = true
         } catch (_: Throwable) {
             isSystemSettingsApplied = false
+        }
+    }
+
+    private fun readFloatOrNull(resolver: android.content.ContentResolver, key: String): Float? {
+        return try {
+            Settings.System.getFloat(resolver, key)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun readIntOrNull(resolver: android.content.ContentResolver, key: String): Int? {
+        return try {
+            Settings.System.getInt(resolver, key)
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -221,36 +318,26 @@ class RefreshRateLockController(private val context: Context) {
             try {
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return@post
 
-                val existingView = overlaySurfaceView
+                val existingView = overlayAnchorView
                 val existingParams = overlayParams
                 if (existingView != null && existingParams != null && existingView.isAttachedToWindow) {
-                    @Suppress("DEPRECATION")
-                    existingParams.preferredRefreshRate = target.hz.toFloat()
-                    if (modeId != 0) {
-                        existingParams.preferredDisplayModeId = modeId
+                    if (lastAppliedOverlayHz != target.hz) {
+                        @Suppress("DEPRECATION")
+                        existingParams.preferredRefreshRate = target.hz.toFloat()
+                        if (modeId != 0) {
+                            existingParams.preferredDisplayModeId = modeId
+                        }
+                        wm.updateViewLayout(existingView, existingParams)
+                        lastAppliedOverlayHz = target.hz
                     }
-                    wm.updateViewLayout(existingView, existingParams)
-                    applySurfaceFrameRate(existingView.holder.surface, target)
                     isOverlayAnchored = true
                     return@post
                 }
 
-                val surfaceView = SurfaceView(context).apply {
-                    setZOrderOnTop(false)
+                // Zero-BufferQueue transparent 1x1 View: locks WindowManager refresh rate globally
+                // WITHOUT creating a hardware SurfaceView layer that would break HWC game composition!
+                val anchorView = View(context).apply {
                     setBackgroundColor(Color.TRANSPARENT)
-                    holder.setFormat(PixelFormat.TRANSPARENT)
-                    holder.addCallback(object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) {
-                            applySurfaceFrameRate(holder.surface, activeTarget)
-                        }
-
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            applySurfaceFrameRate(holder.surface, activeTarget)
-                        }
-
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        }
-                    })
                 }
 
                 val params = WindowManager.LayoutParams(
@@ -273,9 +360,10 @@ class RefreshRateLockController(private val context: Context) {
                     }
                 }
 
-                wm.addView(surfaceView, params)
-                overlaySurfaceView = surfaceView
+                wm.addView(anchorView, params)
+                overlayAnchorView = anchorView
                 overlayParams = params
+                lastAppliedOverlayHz = target.hz
                 isOverlayAnchored = true
             } catch (_: Throwable) {
                 isOverlayAnchored = false
@@ -287,35 +375,16 @@ class RefreshRateLockController(private val context: Context) {
         mainHandler.post {
             try {
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-                val view = overlaySurfaceView
+                val view = overlayAnchorView
                 if (wm != null && view != null && view.isAttachedToWindow) {
                     wm.removeViewImmediate(view)
                 }
             } catch (_: Throwable) {
             } finally {
-                overlaySurfaceView = null
+                overlayAnchorView = null
                 overlayParams = null
                 isOverlayAnchored = false
             }
-        }
-    }
-
-    private fun applySurfaceFrameRate(surface: Surface?, target: RefreshRateTarget) {
-        if (surface == null || !surface.isValid) return
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                surface.setFrameRate(
-                    target.hz.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                    Surface.CHANGE_FRAME_RATE_ALWAYS
-                )
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                surface.setFrameRate(
-                    target.hz.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
-                )
-            }
-        } catch (_: Throwable) {
         }
     }
 }
