@@ -34,9 +34,6 @@ class PerformanceForegroundService : Service() {
 
         val engine = AndroidPerformanceEngine.getInstance(applicationContext)
         val state = engine.telemetryState.value
-        if (state.isSessionActive) {
-            engine.refreshController.lockRefreshRateGlobally(state.selectedRefreshRate)
-        }
 
         val notification = buildPerformanceNotification(
             context = this,

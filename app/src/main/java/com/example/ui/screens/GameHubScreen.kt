@@ -1,7 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,6 +34,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,7 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.AssociatedGameEntity
+import com.example.data.UserPreferencesEntity
 import com.example.model.InstalledAppItem
 import com.example.model.PerformanceProfile
 import com.example.model.WorkloadFocus
@@ -67,9 +70,14 @@ import com.example.ui.theme.TextSecondary
 fun GameHubScreen(
     associatedGames: List<AssociatedGameEntity>,
     installedApps: List<InstalledAppItem>,
+    preferences: UserPreferencesEntity,
     onAssociateGame: (packageName: String, appName: String, profile: PerformanceProfile, focus: WorkloadFocus) -> Unit,
     onRemoveGame: (packageName: String) -> Unit,
     onLaunchGameWithProfile: (AssociatedGameEntity) -> Unit,
+    onToggleBatteryWarning: (Boolean) -> Unit,
+    onToggleBootRestore: (Boolean) -> Unit,
+    onToggleAutoStart: (Boolean) -> Unit,
+    onToggleFloatingFpsOverlay: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedProfile by remember { mutableStateOf(PerformanceProfile.DIABLO_MODE) }
@@ -87,68 +95,22 @@ fun GameHubScreen(
             .fillMaxSize()
             .background(ObsidianBg)
             .testTag("game_hub_screen"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column {
-                Text(
-                    text = "GAME & BENCHMARK LAUNCH HUB",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Associate any game or benchmark with Diablo Mode. Launching from Game Hub locks 100% hardware duty and opens the app.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-            }
-        }
-
-        // Compliance Banner
-        item {
-            Surface(
-                color = CarbonSurface,
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, TelemetryGreen.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Security,
-                        contentDescription = "Safe",
-                        tint = TelemetryGreen,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Anti-Cheat Safe: Uses standard Android Performance & Game Mode APIs. Zero APK modification or game hooking.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
-                }
-            }
-        }
-
-        // Add Game Association Card
-        item {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, CarbonBorder, RoundedCornerShape(16.dp)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, CarbonBorder),
                 colors = CardDefaults.cardColors(containerColor = CarbonSurface)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Text(
-                        text = "ASSOCIATE GAME / APP",
+                        text = "ADD GAME (BGMI / FREE FIRE / APPS)",
                         style = MaterialTheme.typography.labelLarge,
-                        color = ElectricCyan
+                        color = ElectricCyan,
+                        fontWeight = FontWeight.ExtraBold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     FlowRow(
@@ -160,10 +122,7 @@ fun GameHubScreen(
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = if (selected) CobaltDeep else ObsidianBg,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (selected) ElectricCyan else CarbonBorder
-                                ),
+                                border = BorderStroke(1.dp, if (selected) ElectricCyan else CarbonBorder),
                                 modifier = Modifier.clickable { selectedProfile = profile }
                             ) {
                                 Text(
@@ -176,7 +135,7 @@ fun GameHubScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -186,10 +145,7 @@ fun GameHubScreen(
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = if (selected) CobaltDeep else ObsidianBg,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (selected) TelemetryGreen else CarbonBorder
-                                ),
+                                border = BorderStroke(1.dp, if (selected) TelemetryGreen else CarbonBorder),
                                 modifier = Modifier.clickable { selectedFocus = focus }
                             ) {
                                 Text(
@@ -202,7 +158,7 @@ fun GameHubScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -211,14 +167,14 @@ fun GameHubScreen(
                         OutlinedTextField(
                             value = customGameName,
                             onValueChange = { customGameName = it },
-                            label = { Text("App / Game Name") },
+                            label = { Text("Game Name") },
                             singleLine = true,
                             modifier = Modifier.weight(1f).testTag("game_title_input")
                         )
                         OutlinedTextField(
                             value = customPackageName,
                             onValueChange = { customPackageName = it },
-                            label = { Text("Package (e.g. com.tencent.ig)") },
+                            label = { Text("Package ID") },
                             singleLine = true,
                             modifier = Modifier.weight(1f).testTag("game_package_input")
                         )
@@ -234,8 +190,8 @@ fun GameHubScreen(
                             onClick = {
                                 if (customGameName.isNotBlank() && customPackageName.isNotBlank()) {
                                     onAssociateGame(
-                                        customPackageName,
-                                        customGameName,
+                                        customPackageName.trim(),
+                                        customGameName.trim(),
                                         selectedProfile,
                                         selectedFocus
                                     )
@@ -252,7 +208,7 @@ fun GameHubScreen(
                         ) {
                             Icon(imageVector = Icons.Filled.Add, contentDescription = "Add")
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Associate App", fontWeight = FontWeight.Bold)
+                            Text("Add Game", fontWeight = FontWeight.Bold)
                         }
 
                         OutlinedButton(
@@ -260,7 +216,7 @@ fun GameHubScreen(
                             modifier = Modifier.weight(1f).testTag("toggle_installed_apps_button")
                         ) {
                             Text(
-                                text = if (showInstalledPicker) "Hide Apps" else "Pick Installed (${installedApps.size})",
+                                text = if (showInstalledPicker) "Hide Apps" else "Pick Apps (${installedApps.size})",
                                 color = ElectricCyan
                             )
                         }
@@ -269,23 +225,13 @@ fun GameHubScreen(
             }
         }
 
-        // Installed Apps Picker
         if (showInstalledPicker) {
-            item {
-                Text(
-                    text = "AVAILABLE INSTALLED APPS",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
             items(installedApps.take(15), key = { it.packageName }) { app ->
                 val alreadyAdded = associatedPackageSet.contains(app.packageName)
                 Surface(
                     color = CarbonSurfaceElevated,
                     shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CarbonBorder),
+                    border = BorderStroke(1.dp, CarbonBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -331,37 +277,28 @@ fun GameHubScreen(
             }
         }
 
-        // Associated Apps List
-        item {
-            Text(
-                text = "CONFIGURED APPS (${associatedGames.size})",
-                style = MaterialTheme.typography.labelLarge,
-                color = TextSecondary,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
         if (associatedGames.isEmpty()) {
             item {
                 Surface(
                     color = CarbonSurface,
                     shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CarbonBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Gamepad,
                             contentDescription = "No Games",
                             tint = TextSecondary,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(28.dp)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "No apps associated yet. Add your favorite game or benchmark above.",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "Tap Pick Apps above to link BGMI or Free Fire for 1-tap Max FPS launch.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -370,14 +307,13 @@ fun GameHubScreen(
         } else {
             items(associatedGames, key = { it.packageName }) { game ->
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, CarbonBorder, RoundedCornerShape(14.dp)),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, CarbonBorder),
                     colors = CardDefaults.cardColors(containerColor = CarbonSurface)
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -388,13 +324,7 @@ fun GameHubScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = game.packageName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Profile: ${game.assignedProfileId} • Focus: ${game.assignedFocusId}",
+                                text = "${game.assignedProfileId} • ${game.assignedFocusId}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = DiabloRed,
                                 fontWeight = FontWeight.SemiBold
@@ -413,8 +343,6 @@ fun GameHubScreen(
                             Text("Launch")
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
-
                         IconButton(onClick = { onRemoveGame(game.packageName) }) {
                             Icon(
                                 imageVector = Icons.Filled.Delete,
@@ -426,5 +354,92 @@ fun GameHubScreen(
                 }
             }
         }
+
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "QUICK SETTINGS",
+                style = MaterialTheme.typography.labelLarge,
+                color = ElectricCyan,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, CarbonBorder),
+                colors = CardDefaults.cardColors(containerColor = CarbonSurface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    CompactSettingRow(
+                        title = "Floating FPS Overlay",
+                        subtitle = "Show real-time FPS HUD over games",
+                        checked = preferences.floatingFpsOverlayEnabled,
+                        onCheckedChange = onToggleFloatingFpsOverlay,
+                        testTag = "floating_fps_overlay_switch"
+                    )
+                    CompactSettingRow(
+                        title = "Auto-Start Diablo on Launch",
+                        subtitle = "Engage Max Lock immediately when app opens",
+                        checked = preferences.autoStartMaxPowerOnLaunch,
+                        onCheckedChange = onToggleAutoStart
+                    )
+                    CompactSettingRow(
+                        title = "Auto-Restore on Boot",
+                        subtitle = "Re-enable lock automatically after device restart",
+                        checked = preferences.autoRestoreOnBoot,
+                        onCheckedChange = onToggleBootRestore
+                    )
+                    CompactSettingRow(
+                        title = "Thermal Warning Banner",
+                        subtitle = "Warn if CPU/GPU cross safe temperature limit",
+                        checked = preferences.batteryProtectionWarningEnabled,
+                        onCheckedChange = onToggleBatteryWarning
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactSettingRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    testTag: String? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                fontSize = 11.sp
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = if (testTag != null) Modifier.testTag(testTag) else Modifier,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = TextPrimary,
+                checkedTrackColor = ElectricCyan
+            )
+        )
     }
 }

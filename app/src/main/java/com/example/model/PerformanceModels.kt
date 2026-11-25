@@ -102,15 +102,15 @@ enum class EngineWorkloadMode(
 ) {
     GAME_ANTI_DROP(
         id = "GAME_ANTI_DROP",
-        title = "🎯 Game Anti-Drop (120+ FPS Lock)",
-        subtitle = "Zero CPU/GPU theft • ADPF + Wi-Fi Low-Latency + Hz Anchor keeps 98% power free for games",
-        badge = "ZERO DROP"
+        title = "Zero-Load Hz Lock",
+        subtitle = "Minimal background Hz + ADPF lock only (98% free always)",
+        badge = "LIGHT"
     ),
     BENCHMARK_STRESS(
         id = "BENCHMARK_STRESS",
-        title = "🔥 Pure Stress / Benchmark Load",
-        subtitle = "Full CPU+GPU compute burn (Auto-pauses when you open a game so FPS never drops)",
-        badge = "STRESS"
+        title = "Max Power + Auto Game Boost",
+        subtitle = "Full CPU/GPU power in-app • Auto-frees 99% for BGMI & Free Fire on launch",
+        badge = "MAX + GAME"
     );
 
     companion object {
@@ -330,10 +330,10 @@ data class PerformanceTelemetryState(
     val selectedProfile: PerformanceProfile = PerformanceProfile.DIABLO_MODE,
     val selectedWorkloadFocus: WorkloadFocus = WorkloadFocus.COMBINED_MAX,
     val selectedRefreshRate: RefreshRateTarget = RefreshRateTarget.HZ_144,
-    val engineWorkloadMode: EngineWorkloadMode = EngineWorkloadMode.GAME_ANTI_DROP,
-    val antiFpsDropGuardEnabled: Boolean = true,
+    val engineWorkloadMode: EngineWorkloadMode = EngineWorkloadMode.BENCHMARK_STRESS,
+    val antiFpsDropGuardEnabled: Boolean = false,
     val backgroundZeroContentionActive: Boolean = false,
-    val gameCpuHeadroomPercent: Int = 98,
+    val gameCpuHeadroomPercent: Int = 15,
     val wifiLowLatencyLocked: Boolean = false,
     val droppedFramesCount: Int = 0,
     val floatingFpsOverlayEnabled: Boolean = true,

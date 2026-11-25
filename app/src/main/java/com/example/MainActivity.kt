@@ -10,7 +10,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
@@ -23,12 +22,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,11 +34,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,16 +75,13 @@ import com.example.ui.PerformanceViewModel
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.GameHubScreen
 import com.example.ui.screens.ProfilesScreen
-import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.CobaltDeep
 import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.DiabloRedGlow
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ElectricCyanGlow
 import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassBorderActive
 import com.example.ui.theme.GlassSurface
-import com.example.ui.theme.GlassSurfaceElevated
 import com.example.ui.theme.LiquidGlassGradient
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.RESpoofingTheme
@@ -96,10 +89,9 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 enum class AppNavTab(val title: String, val icon: ImageVector, val tag: String) {
-    DASHBOARD("Dashboard", Icons.Filled.Dashboard, "tab_dashboard"),
-    PROFILES("Modes", Icons.Filled.Speed, "tab_profiles"),
-    GAME_HUB("Game Hub", Icons.Filled.Gamepad, "tab_game_hub"),
-    SETTINGS("Settings", Icons.Filled.Settings, "tab_settings")
+    DASHBOARD("Boost", Icons.Filled.FlashOn, "tab_dashboard"),
+    PROFILES("CPU & GPU", Icons.Filled.Memory, "tab_profiles"),
+    GAME_HUB("Games", Icons.Filled.Gamepad, "tab_game_hub")
 }
 
 class MainActivity : ComponentActivity() {
@@ -165,10 +157,9 @@ fun MainAppContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .border(1.5.dp, ElectricCyan, CircleShape)
-                                .shadow(6.dp, CircleShape, ambientColor = ElectricCyan, spotColor = ElectricCyan)
                         ) {
                             Image(
                                 painter = painterResource(id = R.drawable.raunak_logo),
@@ -180,7 +171,7 @@ fun MainAppContent(
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "RAUNAK EXPLOITS",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
                             color = TextPrimary,
                             letterSpacing = 0.5.sp
@@ -194,7 +185,7 @@ fun MainAppContent(
                                 text = if (telemetryState.isSessionActive) {
                                     "${telemetryState.lockedPowerPercent}% • ${telemetryState.selectedRefreshRate.hz}Hz"
                                 } else {
-                                    "${telemetryState.selectedRefreshRate.hz}Hz READY"
+                                    "${telemetryState.selectedRefreshRate.hz}Hz"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextPrimary,
@@ -245,7 +236,6 @@ fun MainAppContent(
                     ProfilesScreen(
                         state = telemetryState,
                         recentSessions = recentSessions,
-                        onSelectProfile = { viewModel.selectProfile(it) },
                         onSelectWorkloadFocus = { viewModel.selectWorkloadFocus(it) },
                         onSelectCpuPowerTarget = { viewModel.selectCpuPowerTarget(it) },
                         onSelectGpuPowerTarget = { viewModel.selectGpuPowerTarget(it) },
@@ -262,16 +252,15 @@ fun MainAppContent(
                     GameHubScreen(
                         associatedGames = associatedGames,
                         installedApps = installedApps,
+                        preferences = preferences,
                         onAssociateGame = { pkg, name, prof, focus ->
                             viewModel.addGameAssociation(pkg, name, prof, focus)
                         },
                         onRemoveGame = { viewModel.removeGameAssociation(it) },
-                        onLaunchGameWithProfile = { viewModel.launchGameWithProfile(it) }
-                    )
-                }
-                AppNavTab.SETTINGS -> {
-                    SettingsScreen(
-                        preferences = preferences,
+                        onLaunchGameWithProfile = {
+                            viewModel.launchGameWithProfile(it)
+                            onApplyWindowRefreshRate()
+                        },
                         onToggleBatteryWarning = { viewModel.updateBatteryWarning(it) },
                         onToggleBootRestore = { viewModel.updateBootRestore(it) },
                         onToggleAutoStart = { viewModel.updateAutoStartMaxPower(it) },
@@ -345,7 +334,7 @@ private fun LiquidGlassBottomNavigationDock(
 
     Surface(
         color = GlassSurface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.2.dp,
             Brush.verticalGradient(
@@ -358,14 +347,14 @@ private fun LiquidGlassBottomNavigationDock(
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), ambientColor = glowColor, spotColor = glowColor)
+            .shadow(14.dp, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), ambientColor = glowColor, spotColor = glowColor)
     ) {
         Row(
             modifier = Modifier
                 .background(LiquidGlassGradient)
                 .navigationBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             AppNavTab.entries.forEach { tab ->
@@ -374,25 +363,20 @@ private fun LiquidGlassBottomNavigationDock(
                 val isPressed by interactionSource.collectIsPressedAsState()
 
                 val scale by animateFloatAsState(
-                    targetValue = if (isPressed) 0.92f else if (isSelected) 1.05f else 1.0f,
+                    targetValue = if (isPressed) 0.94f else if (isSelected) 1.04f else 1.0f,
                     animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
                     label = "tabScale"
                 )
 
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = if (isSelected) CobaltDeep else Color.Transparent,
                     border = if (isSelected) {
-                        androidx.compose.foundation.BorderStroke(
-                            1.5.dp,
-                            Brush.linearGradient(
-                                listOf(accentColor, accentColor.copy(alpha = 0.3f))
-                            )
-                        )
+                        androidx.compose.foundation.BorderStroke(1.4.dp, accentColor)
                     } else null,
                     modifier = Modifier
                         .scale(scale)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable(
                             interactionSource = interactionSource,
                             indication = null,
@@ -402,12 +386,9 @@ private fun LiquidGlassBottomNavigationDock(
                             }
                         )
                         .testTag(tab.tag)
-                        .then(
-                            if (isSelected) Modifier.shadow(8.dp, RoundedCornerShape(16.dp), ambientColor = glowColor, spotColor = glowColor) else Modifier
-                        )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -416,16 +397,13 @@ private fun LiquidGlassBottomNavigationDock(
                             tint = if (isSelected) accentColor else TextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = tab.title,
-                                color = TextPrimary,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = tab.title,
+                            color = if (isSelected) TextPrimary else TextSecondary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold
+                        )
                     }
                 }
             }

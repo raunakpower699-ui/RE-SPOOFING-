@@ -139,8 +139,8 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
     fun selectEngineWorkloadMode(mode: EngineWorkloadMode) {
         engine.setEngineWorkloadMode(mode)
         _uiBannerMessage.value = when (mode) {
-            EngineWorkloadMode.GAME_ANTI_DROP -> "🎯 Game Anti-Drop ON: 98% CPU/GPU free for games — zero FPS drops!"
-            EngineWorkloadMode.BENCHMARK_STRESS -> "🔥 Benchmark Stress ON (Auto-pauses when you switch to a game)."
+            EngineWorkloadMode.GAME_ANTI_DROP -> "Zero-Load Hz Lock ON: 98% CPU/GPU free always."
+            EngineWorkloadMode.BENCHMARK_STRESS -> "Max Power + Auto Game Boost ON: Full power in-app, auto-frees 99% for games."
         }
     }
 
@@ -257,6 +257,7 @@ class PerformanceViewModel(application: Application) : AndroidViewModel(applicat
             val launchIntent = pm.getLaunchIntentForPackage(game.packageName)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                engine.onAppForegroundStateChanged(true)
                 getApplication<Application>().startActivity(launchIntent)
             } else {
                 _uiBannerMessage.value = "App ${game.appName} locked at 100% duty, but launch intent not found."

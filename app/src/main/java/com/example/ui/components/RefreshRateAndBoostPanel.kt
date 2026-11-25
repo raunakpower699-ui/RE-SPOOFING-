@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Lock
@@ -113,11 +112,11 @@ fun RefreshRateLockControlCard(
                         imageVector = Icons.Filled.DisplaySettings,
                         contentDescription = "Refresh Rate Lock",
                         tint = ElectricCyan,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "REFRESH RATE LOCK",
+                        text = "MAX FPS / HZ LOCK",
                         style = MaterialTheme.typography.labelLarge,
                         color = ElectricCyan,
                         fontWeight = FontWeight.ExtraBold,
@@ -125,42 +124,15 @@ fun RefreshRateLockControlCard(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = TelemetryGreen.copy(alpha = 0.18f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TelemetryGreen.copy(alpha = 0.7f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.BatteryChargingFull,
-                            contentDescription = "1% Battery Lock",
-                            tint = TelemetryGreen,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "1% BATTERY SAFE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TelemetryGreen,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 10.sp
-                        )
-                    }
-                }
+                Text(
+                    text = "PANEL ${state.deviceSpecs.panelMaxRefreshRateHz}Hz",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TelemetryGreen,
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Select 90 / 120 / 144 / 165 Hz • Fixed Lock (Even at 1% Battery)",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

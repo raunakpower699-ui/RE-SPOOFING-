@@ -1,16 +1,8 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -50,15 +42,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.model.PerformanceProfile
 import com.example.model.PerformanceTelemetryState
 import com.example.model.RefreshRateTarget
@@ -66,7 +55,6 @@ import com.example.ui.components.RealTimeThermalMonitorCard
 import com.example.ui.components.RefreshRateLockControlCard
 import com.example.ui.components.ThermalThrottlingAlertBanner
 import com.example.ui.theme.CobaltDeep
-import com.example.ui.theme.DiabloGlassGradient
 import com.example.ui.theme.DiabloOrange
 import com.example.ui.theme.DiabloRed
 import com.example.ui.theme.DiabloRedDim
@@ -101,10 +89,9 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(ObsidianBg)
             .testTag("dashboard_screen"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Real-Time Thermal Throttling Alert (Shown only when throttling is detected)
         item {
             ThermalThrottlingAlertBanner(
                 state = state,
@@ -112,12 +99,10 @@ fun DashboardScreen(
             )
         }
 
-        // 2. Raunak Exploits Branding Hero Card + Live CPU/GPU Temp Pill
         item {
-            RaunakExploitsBrandingHero(state = state)
+            CompactDeviceHeader(state = state)
         }
 
-        // 3. Refresh Rate Lock Selector (90 / 120 / 144 / 165 Hz) + 1% Battery Guard
         item {
             RefreshRateLockControlCard(
                 state = state,
@@ -125,69 +110,49 @@ fun DashboardScreen(
             )
         }
 
-        // 4. Clean 3-Mode Selector (No Extra Clutter Buttons)
         item {
-            Text(
-                text = "SELECT PERFORMANCE TUNING MODE",
-                style = MaterialTheme.typography.labelLarge,
-                color = ElectricCyan,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.8.sp,
-                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactModeRowCard(
+                    title = "🔥 DIABLO MODE",
+                    badge = "100% MAX",
+                    subtitle = "Full CPU/GPU lock • Auto-frees 99% for BGMI & Free Fire",
+                    isSelected = state.selectedProfile == PerformanceProfile.DIABLO_MODE,
+                    accentColor = DiabloRed,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSelectProfile(PerformanceProfile.DIABLO_MODE)
+                    },
+                    testTag = "mode_card_diablo"
+                )
+                CompactModeRowCard(
+                    title = "⚖️ BALANCE MODE",
+                    badge = "70% STEADY",
+                    subtitle = "Smooth gaming frame pacing with balanced thermals",
+                    isSelected = state.selectedProfile == PerformanceProfile.BALANCE_MODE,
+                    accentColor = ElectricCyan,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSelectProfile(PerformanceProfile.BALANCE_MODE)
+                    },
+                    testTag = "mode_card_balance"
+                )
+                CompactModeRowCard(
+                    title = "🍃 SAVING MODE",
+                    badge = "25% COOL",
+                    subtitle = "Low heat while keeping your selected Hz pinned",
+                    isSelected = state.selectedProfile == PerformanceProfile.SAVING_MODE,
+                    accentColor = TelemetryGreen,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSelectProfile(PerformanceProfile.SAVING_MODE)
+                    },
+                    testTag = "mode_card_saving"
+                )
+            }
         }
 
         item {
-            BigLiquidGlassModeCard(
-                title = "🔥 DIABLO MODE",
-                powerBadge = "100% UNCLAMPED LOCK",
-                detail = "Zero-Contention 120+ FPS Lock • Frees 99% CPU/GPU for Games • Zero 1% Battery Drop",
-                isSelected = state.selectedProfile == PerformanceProfile.DIABLO_MODE,
-                accentColor = DiabloRed,
-                glowColor = DiabloRedGlow,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSelectProfile(PerformanceProfile.DIABLO_MODE)
-                },
-                testTag = "mode_card_diablo"
-            )
-        }
-
-        item {
-            BigLiquidGlassModeCard(
-                title = "⚖️ BALANCE MODE",
-                powerBadge = "70% ADAPTIVE FLOOR",
-                detail = "Optimal Gaming & Frame Pacing • 70% Steady Compute Floor • Cool Thermals & Smooth FPS",
-                isSelected = state.selectedProfile == PerformanceProfile.BALANCE_MODE,
-                accentColor = ElectricCyan,
-                glowColor = ElectricCyanGlow,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSelectProfile(PerformanceProfile.BALANCE_MODE)
-                },
-                testTag = "mode_card_balance"
-            )
-        }
-
-        item {
-            BigLiquidGlassModeCard(
-                title = "🍃 BATTERY SAVING MODE",
-                powerBadge = "25% COOL SAVER",
-                detail = "Thermal Cool-Down Mode • Keeps Selected Hz Pinned While Cooling CPU & GPU",
-                isSelected = state.selectedProfile == PerformanceProfile.SAVING_MODE,
-                accentColor = TelemetryGreen,
-                glowColor = TelemetryGreenGlow,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSelectProfile(PerformanceProfile.SAVING_MODE)
-                },
-                testTag = "mode_card_saving"
-            )
-        }
-
-        // 5. Single Primary Start/Stop Reactor Action Button
-        item {
-            LiquidGlassReactorActionButton(
+            PrimaryBoostButton(
                 state = state,
                 onStart = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -200,33 +165,17 @@ fun DashboardScreen(
             )
         }
 
-        // 6. Real-Time CPU/GPU Thermal Monitor & FPS Stability Card
         item {
             RealTimeThermalMonitorCard(
                 state = state,
                 onToggleFloatingFpsOverlay = onToggleFloatingFpsOverlay
             )
         }
-
-        item {
-            Spacer(modifier = Modifier.height(20.dp))
-        }
     }
 }
 
 @Composable
-private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
-    val infiniteTransition = rememberInfiniteTransition(label = "heroPulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
+private fun CompactDeviceHeader(state: PerformanceTelemetryState) {
     val isActive = state.isSessionActive
     val activeColor = when (state.selectedProfile) {
         PerformanceProfile.DIABLO_MODE -> DiabloRed
@@ -239,151 +188,64 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
         else -> TelemetryGreen
     }
 
-    val glassBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            if (isActive) activeColor.copy(alpha = pulseAlpha) else Color.White.copy(alpha = 0.25f),
-            if (isActive) activeColor.copy(alpha = 0.2f) else ElectricCyan.copy(alpha = 0.15f),
-            Color.Transparent
-        )
-    )
-
     Surface(
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         color = GlassSurface,
-        border = androidx.compose.foundation.BorderStroke(1.2.dp, glassBorderBrush),
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(22.dp), ambientColor = if (isActive) activeColor else ElectricCyan, spotColor = if (isActive) activeColor else ElectricCyan)
+        border = androidx.compose.foundation.BorderStroke(
+            1.2.dp,
+            if (isActive) activeColor.copy(alpha = 0.75f) else GlassBorder
+        ),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .background(if (isActive && state.selectedProfile == PerformanceProfile.DIABLO_MODE) DiabloGlassGradient else LiquidGlassGradient)
-                .padding(18.dp)
+                .background(LiquidGlassGradient)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .border(2.dp, if (isActive) activeColor else ElectricCyan, CircleShape)
-                            .shadow(8.dp, CircleShape, ambientColor = ElectricCyan, spotColor = ElectricCyan)
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.raunak_logo),
-                            contentDescription = "Raunak Exploits Logo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "RAUNAK EXPLOITS",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = TextPrimary,
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "ZERO-DROP GAMING • THERMAL GUARD",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ElectricCyan,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isActive) activeColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isActive) activeColor else GlassBorder
-                        )
-                    ) {
-                        Text(
-                            text = if (isActive) "${state.lockedPowerPercent}% • ${state.selectedRefreshRate.hz}Hz" else "STANDBY",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isActive) activeColor else TextSecondary,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.deviceSpecs.phoneDisplayName,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = thermalColor.copy(alpha = 0.16f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, thermalColor.copy(alpha = 0.6f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Thermostat,
-                                contentDescription = "CPU GPU Temperature",
-                                tint = thermalColor,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "${state.thermalStatus.cpuTempCelsius}° / ${state.thermalStatus.gpuTempCelsius}°C",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = thermalColor,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.deviceSpecs.phoneDisplayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (isActive) {
-                        val modeText = if (state.antiFpsDropGuardEnabled) "Anti-Drop (${state.gameCpuHeadroomPercent}% Free)" else "Unclamped Max"
-                        "$modeText • CPU ${state.realMeasuredThreadDutyPercent}% / GPU ${state.gpuLockedDutyPercent}% • ${state.selectedRefreshRate.label}"
+                        "CPU ${state.realMeasuredThreadDutyPercent}% • GPU ${state.gpuLockedDutyPercent}% • ${state.selectedRefreshRate.label} LOCKED"
                     } else {
-                        "${state.deviceSpecs.androidVersionLabel} • Pick Hz & Mode, then tap Start"
+                        "${state.deviceSpecs.androidVersionLabel} • Panel Max ${state.deviceSpecs.panelMaxRefreshRateHz}Hz"
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isActive) activeColor else TextSecondary,
+                    fontWeight = FontWeight.SemiBold
                 )
+            }
 
-                if (isActive && state.sessionElapsedSeconds > 0L) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    val min = state.sessionElapsedSeconds / 60
-                    val sec = state.sessionElapsedSeconds % 60
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = thermalColor.copy(alpha = 0.16f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, thermalColor.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Thermostat,
+                        contentDescription = "Temp",
+                        tint = thermalColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "Session Active: ${String.format("%02d:%02d", min, sec)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = activeColor,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                        text = "${state.thermalStatus.cpuTempCelsius.toInt()}°C",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = thermalColor,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }
@@ -392,121 +254,72 @@ private fun RaunakExploitsBrandingHero(state: PerformanceTelemetryState) {
 }
 
 @Composable
-private fun BigLiquidGlassModeCard(
+private fun CompactModeRowCard(
     title: String,
-    powerBadge: String,
-    detail: String,
+    badge: String,
+    subtitle: String,
     isSelected: Boolean,
     accentColor: Color,
-    glowColor: Color,
     onClick: () -> Unit,
     testTag: String
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else if (isSelected) 1.01f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
-        label = "modeCardScale"
-    )
-
-    val borderBrush = if (isSelected) {
-        Brush.linearGradient(
-            colors = listOf(
-                accentColor,
-                Color.White.copy(alpha = 0.4f),
-                accentColor.copy(alpha = 0.5f)
-            )
-        )
-    } else {
-        Brush.linearGradient(
-            colors = listOf(GlassBorder, Color.White.copy(alpha = 0.05f))
-        )
-    }
-
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(14.dp),
         color = if (isSelected) GlassSurfaceElevated else GlassSurface,
-        border = androidx.compose.foundation.BorderStroke(if (isSelected) 2.dp else 1.dp, borderBrush),
+        border = androidx.compose.foundation.BorderStroke(
+            if (isSelected) 1.8.dp else 1.dp,
+            if (isSelected) accentColor else GlassBorder
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scale)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
+            .clickable(onClick = onClick)
             .testTag(testTag)
-            .then(
-                if (isSelected) Modifier.shadow(14.dp, RoundedCornerShape(18.dp), ambientColor = glowColor, spotColor = glowColor) else Modifier
-            )
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .background(
                     if (isSelected) {
-                        Brush.horizontalGradient(
-                            listOf(
-                                accentColor.copy(alpha = 0.22f),
-                                GlassSurfaceElevated,
-                                accentColor.copy(alpha = 0.08f)
-                            )
-                        )
+                        Brush.horizontalGradient(listOf(accentColor.copy(alpha = 0.18f), Color.Transparent))
                     } else {
                         LiquidGlassGradient
                     }
                 )
-                .padding(16.dp)
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                            contentDescription = "Selected",
-                            tint = if (isSelected) accentColor else TextSecondary.copy(alpha = 0.5f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.9f),
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) accentColor.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.06f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isSelected) accentColor else GlassBorder
-                        )
-                    ) {
-                        Text(
-                            text = powerBadge,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) accentColor else TextSecondary,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
+            Icon(
+                imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                contentDescription = "Select $title",
+                tint = if (isSelected) accentColor else TextSecondary.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isSelected) TextPrimary.copy(alpha = 0.9f) else TextSecondary,
-                    lineHeight = 20.sp
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (isSelected) accentColor.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f)
+            ) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) accentColor else TextSecondary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
         }
@@ -514,7 +327,7 @@ private fun BigLiquidGlassModeCard(
 }
 
 @Composable
-private fun LiquidGlassReactorActionButton(
+private fun PrimaryBoostButton(
     state: PerformanceTelemetryState,
     onStart: () -> Unit,
     onStop: () -> Unit
@@ -526,7 +339,7 @@ private fun LiquidGlassReactorActionButton(
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.96f else 1.0f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
-        label = "reactorScale"
+        label = "boostButtonScale"
     )
 
     val activeColor = when (state.selectedProfile) {
@@ -534,46 +347,38 @@ private fun LiquidGlassReactorActionButton(
         PerformanceProfile.BALANCE_MODE -> ElectricCyan
         PerformanceProfile.SAVING_MODE -> TelemetryGreen
     }
+    val glowColor = if (isActive) DiabloRedGlow else ElectricCyanGlow
 
-    val glowColor = if (isActive) DiabloRedGlow else when (state.selectedProfile) {
-        PerformanceProfile.DIABLO_MODE -> DiabloRedGlow
-        PerformanceProfile.BALANCE_MODE -> ElectricCyanGlow
-        PerformanceProfile.SAVING_MODE -> TelemetryGreenGlow
-    }
-
-    val buttonBackground = if (isActive) {
-        Brush.horizontalGradient(
-            listOf(
-                DiabloRedDim,
-                DiabloRed,
-                Color(0xFFFF5252)
-            )
-        )
+    val bgBrush = if (isActive) {
+        Brush.horizontalGradient(listOf(DiabloRedDim, DiabloRed))
     } else {
-        Brush.horizontalGradient(
-            listOf(
-                activeColor.copy(alpha = 0.9f),
-                CobaltDeep,
-                activeColor.copy(alpha = 0.95f)
-            )
-        )
+        Brush.horizontalGradient(listOf(activeColor.copy(alpha = 0.9f), CobaltDeep, activeColor.copy(alpha = 0.9f)))
     }
 
-    val borderBrush = Brush.linearGradient(
-        listOf(
-            Color.White.copy(alpha = 0.6f),
-            if (isActive) DiabloRed else activeColor,
-            Color.White.copy(alpha = 0.2f)
-        )
-    )
+    val powerLabel = if (state.customCpuDutyOverride != null || state.customGpuDutyOverride != null) {
+        val basePct = when (state.selectedProfile) {
+            PerformanceProfile.DIABLO_MODE -> 100
+            PerformanceProfile.BALANCE_MODE -> 70
+            PerformanceProfile.SAVING_MODE -> 25
+        }
+        val cpuPct = state.customCpuDutyOverride ?: if (state.selectedWorkloadFocus.enableCpuHints) basePct else 0
+        val gpuPct = state.customGpuDutyOverride ?: if (state.selectedWorkloadFocus.enableGpuGameHints) basePct else 0
+        "CPU $cpuPct% / GPU $gpuPct%"
+    } else {
+        when (state.selectedProfile) {
+            PerformanceProfile.DIABLO_MODE -> "MAX POWER"
+            PerformanceProfile.BALANCE_MODE -> "70% BALANCE"
+            PerformanceProfile.SAVING_MODE -> "25% SAVER"
+        }
+    }
 
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        border = androidx.compose.foundation.BorderStroke(2.dp, borderBrush),
+        shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.8.dp, if (isActive) DiabloRed else activeColor),
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .shadow(16.dp, RoundedCornerShape(24.dp), ambientColor = glowColor, spotColor = glowColor)
+            .shadow(12.dp, RoundedCornerShape(18.dp), ambientColor = glowColor, spotColor = glowColor)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -581,70 +386,45 @@ private fun LiquidGlassReactorActionButton(
             )
             .testTag(if (isActive) "stop_performance_button" else "start_performance_button")
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .background(buttonBackground)
-                .padding(vertical = 16.dp, horizontal = 20.dp),
-            contentAlignment = Alignment.Center
+                .background(bgBrush)
+                .padding(vertical = 15.dp, horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.3f)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isActive) Icons.Filled.Stop else Icons.Filled.FlashOn,
-                        contentDescription = "Trigger",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                val targetPowerLabel = if (state.customCpuDutyOverride != null || state.customGpuDutyOverride != null) {
-                    val basePct = when (state.selectedProfile) {
-                        PerformanceProfile.DIABLO_MODE -> 100
-                        PerformanceProfile.BALANCE_MODE -> 70
-                        PerformanceProfile.SAVING_MODE -> 25
-                    }
-                    val cpuTarget = state.customCpuDutyOverride ?: if (state.selectedWorkloadFocus.enableCpuHints) basePct else 0
-                    val gpuTarget = state.customGpuDutyOverride ?: if (state.selectedWorkloadFocus.enableGpuGameHints) basePct else 0
-                    "CPU $cpuTarget% / GPU $gpuTarget%"
-                } else {
-                    when (state.selectedProfile) {
-                        PerformanceProfile.DIABLO_MODE -> "100% MAX POWER"
-                        PerformanceProfile.BALANCE_MODE -> "70% BALANCE POWER"
-                        PerformanceProfile.SAVING_MODE -> "25% COOL SAVER"
-                    }
-                }
-                val hzLabel = state.selectedRefreshRate.label
-
-                Column {
-                    Text(
-                        text = if (isActive) "🔥 $targetPowerLabel + $hzLabel LOCKED" else "⚡ START $targetPowerLabel + $hzLabel",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary,
-                        letterSpacing = 0.6.sp
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isActive) {
-                            "${if (state.antiFpsDropGuardEnabled) "Game Anti-Drop" else "Unclamped Max"} • Thermal Monitor ON • Tap to stop"
-                        } else {
-                            "Stable FPS Lock & Real-Time Thermal Guard (Even at 1%)"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextPrimary.copy(alpha = 0.85f)
-                    )
-                }
+                Icon(
+                    imageVector = if (isActive) Icons.Filled.Stop else Icons.Filled.FlashOn,
+                    contentDescription = if (isActive) "Stop Boost" else "Start Boost",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = if (isActive) {
+                        "🔥 LOCKED ($powerLabel + ${state.selectedRefreshRate.label})"
+                    } else {
+                        "⚡ START MAX LOCK (${state.selectedRefreshRate.label})"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = if (isActive) "Tap to stop lock" else "Locks Max Hz + CPU/GPU Boost",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextPrimary.copy(alpha = 0.85f),
+                    fontSize = 11.sp
+                )
             }
         }
     }

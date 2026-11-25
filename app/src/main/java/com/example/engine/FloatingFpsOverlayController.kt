@@ -112,7 +112,7 @@ class FloatingFpsOverlayController(private val context: Context) {
 
             if (windowStartNanos == 0L) {
                 windowStartNanos = frameTimeNanos
-            } else if (frameTimeNanos - windowStartNanos >= 500_000_000L) {
+            } else if (frameTimeNanos - windowStartNanos >= 1_000_000_000L) {
                 val elapsedSec = (frameTimeNanos - windowStartNanos) / 1_000_000_000.0
                 val measured = (frameCountInWindow / elapsedSec).roundToInt().coerceIn(1, 240)
                 liveFps = measured
@@ -336,8 +336,7 @@ class FloatingFpsOverlayController(private val context: Context) {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = bg
-            setPadding(dp(11), dp(7), dp(11), dp(7))
-            elevation = dp(8).toFloat()
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
 
         // Top row: Live FPS + Status Badge + Close button
